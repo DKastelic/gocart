@@ -39,6 +39,10 @@ type Controller struct {
 	RightBound   float64
 	SafetyMargin float64
 
+	// Channel for accepting and responding to goal requests
+	IncomingGoalRequest  <-chan float64
+	OutgoingGoalResponse chan<- Response
+
 	// Channels for communication with the neighboring carts
 	IncomingLeftRequest   <-chan float64
 	IncomingRightRequest  <-chan float64
@@ -65,9 +69,12 @@ func NewController(cart *Cart, leftBound, rightBound float64) *Controller {
 }
 
 // This could be eg. retrieved from a request
-func getGoal() float64 {
+func (controller *Controller) getGoal() float64 {
 	// Generate a random goal between 0 and 1000
-	return rand.Float64()*1200 + 200
+	// return rand.Float64()*1200 + 200
+
+	// get a goal from the channel
+	return <-controller.IncomingGoalRequest
 }
 
 func (controller *Controller) acceptGoal(goal float64) {
@@ -173,6 +180,10 @@ func (controller *Controller) avoidCollision(newGoal float64, outgoingResponse c
 	}
 }
 
+func clamp(value, min, max float64) float64 {
+	return math.Min(math.Max(value, min), max)
+}
+
 func (controller *Controller) run_controller() {
 
 	fmt.Println(controller.Cart.Name, ": Starting controller")
@@ -188,9 +199,12 @@ func (controller *Controller) run_controller() {
 			control_force := controller.VelocityPID.Update(controller.Cart.Velocity)
 
 			// limit the force to a reasonable range, and a reasonable deviation from the previous force
-			// real_force := math.Min(math.Max(control_force, -1000.0), 1000.0)
-			// real_force = math.Min(math.Max(real_force, controller.Cart.Force-100), controller.Cart.Force+100)
-			real_force := control_force // good enough for now
+			// TODO: this should be a parameter of the physical system, not hardcoded
+			// and it should be processed in the physics loop
+			// real_force := clamp(control_force, -10000.0, 10000.0)
+			// real_force = clamp(real_force, controller.Cart.Force-500, controller.Cart.Force+500)
+			// fmt.Println(controller.Cart.Name, ": Applying force: ", real_force)
+			real_force := control_force
 
 			controller.Cart.applyForce(real_force)
 		}
@@ -232,7 +246,7 @@ func (controller *Controller) run_controller() {
 
 		switch controller.State {
 		case Idle:
-			goal := getGoal()
+			goal := controller.getGoal()
 			controller.processGoal(goal)
 		case Moving:
 			// check if the cart is close to the goal

@@ -12,7 +12,7 @@ func main() {
 
 	// Initialize the cart controllers
 	controllers := []*Controller{
-		NewController(&carts[0], 0, 800),
+		NewController(&carts[0], 0, 1600),
 		// NewController(&carts[1], 800, 1600),
 		// NewController(&carts[2], 800, 1200),
 		// NewController(&carts[3], 1200, 1600),
@@ -22,6 +22,14 @@ func main() {
 		connectControllers(controllers[i], controllers[i+1])
 	}
 
+	// Initialize channels for controller goals
+	controllerGoalChannels := []chan<- float64{}
+	for i := range controllers {
+		ch := make(chan float64)
+		controllers[i].IncomingGoalRequest = ch
+		controllerGoalChannels = append(controllerGoalChannels, ch)
+	}
+
 	// Initialize exit channel
 	exit_channel := make(chan struct{})
 	defer close(exit_channel)
@@ -29,6 +37,7 @@ func main() {
 	// Start the physics and drawing loops
 	go physics_loop(carts)
 	go draw_loop(controllers, exit_channel)
+	go input_loop(controllerGoalChannels, exit_channel)
 
 	// Start the controllers
 	for i := range controllers {
