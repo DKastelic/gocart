@@ -1,16 +1,24 @@
 package main
 
+import "time"
+
 type Response int
 
 const (
 	ACCEPT Response = iota
 	REJECT
 	WAIT
+	GOAL_REACHED
 )
 
+type Request struct {
+	proposed_border float64
+	priority        time.Time
+}
+
 func connectControllers(leftController, rightController *Controller) {
-	leftToRightRequest := make(chan float64)
-	rightToLeftRequest := make(chan float64)
+	leftToRightRequest := make(chan Request)
+	rightToLeftRequest := make(chan Request)
 	leftToRightResponse := make(chan Response)
 	rightToLeftResponse := make(chan Response)
 	leftController.OutgoingRightRequest = leftToRightRequest

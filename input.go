@@ -14,6 +14,11 @@ func input_loop(controllerGoalChannels []chan<- float64, exit_channel chan struc
 
 	stop_generation_channels := make([]chan struct{}, len(controllerGoalChannels))
 
+	fmt.Println("Usage: \n" +
+		"goal <controller_index> <goal_position> - Set a goal for a specific controller.\n" +
+		"random [on|off] - Start or stop automatic goal generation.\n" +
+		"exit - Exit the program.")
+
 	for {
 		input, err := in.ReadString('\n')
 		if err != nil {
@@ -40,7 +45,7 @@ func input_loop(controllerGoalChannels []chan<- float64, exit_channel chan struc
 			fmt.Printf("Setting goal for controller %s to position %s\n", controllerIndex,
 				goalPosition)
 			controllerIndexInt, err := strconv.Atoi(controllerIndex)
-			if err != nil || controllerIndexInt < 0 || controllerIndexInt >= len(controllerGoalChannels) {
+			if err != nil || controllerIndexInt < 1 || controllerIndexInt >= len(controllerGoalChannels)+1 {
 				fmt.Println("Invalid controller index:", controllerIndex)
 				continue
 			}
@@ -49,14 +54,14 @@ func input_loop(controllerGoalChannels []chan<- float64, exit_channel chan struc
 				fmt.Println("Invalid goal position:", goalPosition)
 				continue
 			}
-			controllerGoalChannels[controllerIndexInt] <- goalPositionFloat
+			controllerGoalChannels[controllerIndexInt-1] <- goalPositionFloat
 
-		case "auto_generate_goals":
+		case "random":
 			if len(words) < 2 {
-				fmt.Println("Usage: auto_generate_goals [true|false]")
+				fmt.Println("Usage: random [on|off]")
 				continue
 			}
-			generateRandomGoals := words[1] == "true"
+			generateRandomGoals := words[1] == "on"
 
 			if generateRandomGoals {
 				fmt.Println("Starting automatic goal generation...")
