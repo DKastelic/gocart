@@ -3,6 +3,7 @@ package main
 // the cart's phyisical properties
 type Cart struct {
 	Name string
+	Id   int
 
 	// The cart's position
 	Position float64

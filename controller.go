@@ -53,6 +53,9 @@ type Controller struct {
 	IncomingRightResponse <-chan Response
 	OutgoingLeftResponse  chan<- Response
 	OutgoingRightResponse chan<- Response
+
+	// Channel for sending data to the WebSocket server
+	OutgoingData chan<- SocketData
 }
 
 // NewController creates a new controller with the given PID controllers
@@ -213,6 +216,26 @@ func (controller *Controller) run_controller() {
 			// real_force := control_force
 
 			controller.Cart.applyForce(real_force)
+		}
+	}()
+
+	// Send the cart data to the frontend 10 times a second
+	go func() {
+		ticker := time.NewTicker(time.Second / 10)
+		defer ticker.Stop()
+		for range ticker.C {
+			// send the cart's data to the WebSocket server
+			select {
+			case controller.OutgoingData <- SocketData{
+				Id:           controller.Cart.Id,
+				Position:     controller.Cart.Position,
+				Velocity:     controller.Cart.Velocity,
+				Acceleration: controller.Cart.Acceleration,
+				Jerk:         0, // TODO
+			}:
+			default:
+				// drop if channel is full
+			}
 		}
 	}()
 
