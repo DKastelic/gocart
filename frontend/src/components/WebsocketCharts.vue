@@ -18,9 +18,9 @@
                 <CombinedChart 
                     v-for="type in chartTypes" 
                     :key="type"
-                    :title="`${type.charAt(0).toUpperCase() + type.slice(1)} - All Carts`" 
+                    :title="getChartTitle(type)" 
                     :value_type="type" 
-                    :data="socketData" 
+                    :data="allCartsData" 
                     :num_carts="numColumns"
                     :cart_visibility="cartVisibility"
                 />
@@ -30,13 +30,15 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, reactive } from 'vue';
+import { ref, reactive, watch } from 'vue';
 import CombinedChart from './CombinedChart.vue';
-import { connectWebSocket, registerCallback, type SocketData } from '@/state';
+import { useWebSocket, type SocketData, type AllCartsData } from '@/state';
 
 const numColumns = ref(2);
-const chartTypes = ['position', 'velocity', 'acceleration', 'jerk'] as const;
-const socketData = ref<SocketData | null>(null);
+const chartTypes = ['chartPosition', 'chartVelocity', 'chartAcceleration', 'chartJerk'] as const;
+const allCartsData = ref<AllCartsData | null>(null);
+
+const { latestData } = useWebSocket();
 
 // Initialize cart visibility - only Cart 1 enabled by default
 const cartVisibility = reactive<Record<number, boolean>>({});
@@ -49,13 +51,22 @@ function updateVisibility() {
   // The reactive cartVisibility object will automatically trigger updates
 }
 
-onMounted(() => {
-  connectWebSocket();
+// Watch for changes in latestData
+watch(latestData, (newData) => {
+  if (newData) {
+    allCartsData.value = newData;
+  }
+}, { immediate: true });
 
-  registerCallback((data: SocketData) => {
-    socketData.value = data;
-  })
-})
+function getChartTitle(type: typeof chartTypes[number]): string {
+  const titles: Record<typeof chartTypes[number], string> = {
+    chartPosition: 'Position - All Carts',
+    chartVelocity: 'Velocity - All Carts',
+    chartAcceleration: 'Acceleration - All Carts',
+    chartJerk: 'Jerk - All Carts'
+  };
+  return titles[type];
+}
 </script>
 
 <style scoped>

@@ -11,7 +11,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
-import { registerCallback, connectWebSocket, type SocketData } from '../state';
+import { useWebSocket, type SocketData } from '../state';
 
 const SCREEN_WIDTH = 1600;
 const SCREEN_HEIGHT = 900;
@@ -22,6 +22,9 @@ let animationId: number | null = null;
 
 // Cart data storage
 const carts = ref<Map<number, SocketData>>(new Map());
+
+const { onCartData } = useWebSocket();
+let cleanup: (() => void) | null = null;
 
 // Approximate cart dimensions (these should ideally come from the backend)
 const CART_WIDTH = 50;
@@ -206,10 +209,7 @@ onMounted(() => {
     ctx = canvas.value.getContext('2d');
     if (ctx) {
       // Register for cart data updates
-      registerCallback(handleCartData);
-      
-      // Connect to websocket if not already connected
-      connectWebSocket();
+      cleanup = onCartData(handleCartData);
       
       // Start animation loop
       startAnimation();
@@ -219,6 +219,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopAnimation();
+  if (cleanup) {
+    cleanup();
+  }
 });
 </script>
 

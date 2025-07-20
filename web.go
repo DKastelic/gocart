@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -15,18 +16,27 @@ type ControlMessage struct {
 }
 
 type SocketData struct {
-	Id           int     `json:"id"`
-	Position     float64 `json:"position"`
-	Velocity     float64 `json:"velocity"`
-	Acceleration float64 `json:"acceleration"`
-	Jerk         float64 `json:"jerk"`
-	Timestamp    string  `json:"timestamp"`
+	Id int `json:"id"`
+
+	// Chart data (planned trajectory values from MovementPlanner)
+	ChartPosition     float64 `json:"chartPosition"`
+	ChartVelocity     float64 `json:"chartVelocity"`
+	ChartAcceleration float64 `json:"chartAcceleration"`
+	ChartJerk         float64 `json:"chartJerk"`
+
+	// Real-time data (actual cart physics values)
+	Position float64 `json:"position"`
 
 	LeftBorder  float64 `json:"leftBorder"`
 	RightBorder float64 `json:"rightBorder"`
 	Goal        float64 `json:"goal"`
 	Setpoint    float64 `json:"setpoint"`
 	State       string  `json:"state"` // "Idle", "Moving", "Avoiding"
+}
+
+type AllCartsData struct {
+	Carts     []SocketData `json:"carts"`
+	Timestamp string       `json:"timestamp"`
 }
 
 // Upgrader is used to upgrade HTTP connections to WebSocket connections.
@@ -36,7 +46,7 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-func wsHandler(w http.ResponseWriter, r *http.Request, c <-chan SocketData, controllerGoalChannels []chan<- float64, randomControlChannel chan<- ControlMessage) {
+func wsHandler(w http.ResponseWriter, r *http.Request, c <-chan AllCartsData, controllerGoalChannels []chan<- float64, randomControlChannel chan<- ControlMessage) {
 	// Upgrade the HTTP connection to a WebSocket connection
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -79,26 +89,63 @@ func wsHandler(w http.ResponseWriter, r *http.Request, c <-chan SocketData, cont
 	}
 }
 
-func startWebsocketServer(controllerDataChannels []chan SocketData, controllerGoalChannels []chan<- float64, randomControlChannel chan<- ControlMessage) {
-	// Create a channel to aggregate data from all controllers
-	aggregatedChannel := make(chan SocketData)
+// collectCartData collects the current data from a controller
+func collectCartData(controller *Controller) SocketData {
+	return SocketData{
+		Id: controller.Cart.Id,
 
-	// Start a goroutine to aggregate data from all controller channels
+		// Chart data (planned trajectory values from MovementPlanner)
+		ChartPosition:     controller.MovementPlanner.GetCurrentTrajectoryPosition(controller.MPCTrajectory),
+		ChartVelocity:     controller.MovementPlanner.GetCurrentTrajectoryVelocity(controller.MPCTrajectory),
+		ChartAcceleration: controller.MovementPlanner.GetCurrentTrajectoryAcceleration(controller.MPCTrajectory),
+		ChartJerk:         controller.MovementPlanner.GetCurrentTrajectoryJerk(controller.MPCTrajectory),
+
+		// Real-time data (actual cart physics values)
+		Position: controller.Cart.Position,
+
+		LeftBorder:  controller.LeftBound,
+		RightBorder: controller.RightBound,
+		Goal:        controller.Goal,
+		Setpoint:    controller.PositionPID.Setpoint,
+		State:       controller.State.String(),
+	}
+}
+
+func startWebsocketServer(controllers []*Controller, controllerGoalChannels []chan<- float64, randomControlChannel chan<- ControlMessage) {
+	// Create a channel for broadcasting data
+	dataChannel := make(chan AllCartsData, 100)
+
+	// Start data broadcasting goroutine
 	go func() {
-		for {
-			for _, ch := range controllerDataChannels {
-				select {
-				case data := <-ch:
-					aggregatedChannel <- data
-				default:
-					// No data available, continue
-				}
+		ticker := time.NewTicker(time.Second / 30) // Send data 30 times per second
+		defer ticker.Stop()
+
+		for range ticker.C {
+			// Collect data for all controllers in a single message
+			var cartsData []SocketData
+			timestamp := time.Now().UTC().Format(time.RFC3339Nano)
+
+			for _, controller := range controllers {
+				data := collectCartData(controller)
+				cartsData = append(cartsData, data)
+			}
+
+			allCartsData := AllCartsData{
+				Carts:     cartsData,
+				Timestamp: timestamp,
+			}
+
+			select {
+			case dataChannel <- allCartsData:
+				// Data sent successfully
+			default:
+				// Drop if channel is full
 			}
 		}
 	}()
 
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		wsHandler(w, r, aggregatedChannel, controllerGoalChannels, randomControlChannel)
+		wsHandler(w, r, dataChannel, controllerGoalChannels, randomControlChannel)
 	})
 
 	fmt.Println("WebSocket server started on :8080")

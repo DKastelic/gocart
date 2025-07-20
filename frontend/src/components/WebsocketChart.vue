@@ -18,7 +18,7 @@ use([CanvasRenderer, LineChart, TooltipComponent, TitleComponent, GridComponent]
 const props = defineProps<{
   title: string
   cart_id: number
-  value_type: "position" | "velocity" | "acceleration" | "jerk"
+  value_type: "chartPosition" | "chartVelocity" | "chartAcceleration" | "chartJerk"
   data: SocketData | null
 }>()
 

@@ -75,9 +75,6 @@ type Controller struct {
 	IncomingRightResponse <-chan Response
 	OutgoingLeftResponse  chan<- Response
 	OutgoingRightResponse chan<- Response
-
-	// Channel for sending data to the WebSocket server
-	OutgoingData chan<- SocketData
 }
 
 // NewController creates a new controller with the given PID controllers
@@ -122,6 +119,11 @@ func (controller *Controller) boundedPositionSetpoint() float64 {
 }
 
 func (controller *Controller) requestBoundMove(proposedBorder float64, outgoingRequest chan<- Request, incomingResponse <-chan Response) bool {
+	if controller.State == Avoiding {
+		fmt.Println(controller.Cart.Name, ": Already avoiding, cannot request bound move")
+		return false
+	}
+
 	controller.State = Requesting
 
 	fmt.Println(controller.Cart.Name, ": Requesting to move border to: ", proposedBorder)
@@ -243,33 +245,6 @@ func (controller *Controller) run_controller() {
 			control_force := controller.VelocityPID.Update(controller.Cart.Velocity)
 
 			controller.Cart.applyForce(control_force)
-		}
-	}()
-
-	// Send the cart data to the frontend 30 times a second
-	go func() {
-		ticker := time.NewTicker(time.Second / 30)
-		defer ticker.Stop()
-		for range ticker.C {
-			// send the cart's data to the WebSocket server
-			select {
-			case controller.OutgoingData <- SocketData{
-				Id:           controller.Cart.Id,
-				Position:     controller.MovementPlanner.GetCurrentTrajectoryPosition(controller.MPCTrajectory),
-				Velocity:     controller.MovementPlanner.GetCurrentTrajectoryVelocity(controller.MPCTrajectory),
-				Acceleration: controller.MovementPlanner.GetCurrentTrajectoryAcceleration(controller.MPCTrajectory),
-				Jerk:         controller.MovementPlanner.GetCurrentTrajectoryJerk(controller.MPCTrajectory),
-				Timestamp:    time.Now().UTC().Format(time.RFC3339Nano),
-
-				LeftBorder:  controller.LeftBound,
-				RightBorder: controller.RightBound,
-				Goal:        controller.Goal,
-				Setpoint:    controller.PositionPID.Setpoint,
-				State:       controller.State.String(),
-			}:
-			default:
-				// drop if channel is full
-			}
 		}
 	}()
 

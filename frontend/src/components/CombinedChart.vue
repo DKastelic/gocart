@@ -11,14 +11,14 @@ import VChart from 'vue-echarts'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
 import { TooltipComponent, TitleComponent, GridComponent, LegendComponent } from 'echarts/components'
-import type { SocketData } from '../state'
+import type { SocketData, AllCartsData } from '../state'
 
 use([CanvasRenderer, LineChart, TooltipComponent, TitleComponent, GridComponent, LegendComponent])
 
 const props = defineProps<{
   title: string
-  value_type: "position" | "velocity" | "acceleration" | "jerk"
-  data: SocketData | null
+  value_type: "chartPosition" | "chartVelocity" | "chartAcceleration" | "chartJerk"
+  data: AllCartsData | null
   num_carts: number
   cart_visibility: Record<number, boolean>
 }>()
@@ -148,8 +148,7 @@ watch(() => props.cart_visibility, () => {
 }, { deep: true })
 
 let updateTimeout: ReturnType<typeof setTimeout> | null = null
-// Prepare a map to store pending data per cart
-let pendingData: Record<number, { time: string, value: number }[]> = {}
+let pendingData: AllCartsData[] = []
 
 // Time window in milliseconds (e.g., 30 seconds)
 const TIME_WINDOW_MS = 30000
@@ -169,28 +168,34 @@ function filterDataByTimeWindow(data: [string, number][]): [string, number][] {
 watch(() => props.data, (newData) => {
   if (!newData) return
 
-  const cartId = newData.id
-  if (!pendingData[cartId]) pendingData[cartId] = []
-  pendingData[cartId].push({
-    time: newData.timestamp, // Use backend-provided timestamp
-    value: newData[props.value_type] as number
-  })
+  // Add to pending updates
+  pendingData.push(newData)
 
   if (!updateTimeout) {
     updateTimeout = setTimeout(() => {
-      for (let cartId = 1; cartId <= props.num_carts; cartId++) {
-        const seriesIndex = cartId - 1
-        const series = chartOptions.value.series[seriesIndex]
-        if (!series) continue
+      // Process all pending updates
+      pendingData.forEach(dataUpdate => {
+        dataUpdate.carts.forEach(cartData => {
+          const cartId = cartData.id
+          const seriesIndex = cartId - 1
+          const series = chartOptions.value.series[seriesIndex]
+          if (!series) return
 
-        const currentData = series.data as [string, number][]
-        const newPoints = (pendingData[cartId] || []).map(d => [d.time, d.value] as [string, number])
-        Array.prototype.push.apply(currentData, newPoints)
-        
-        // Apply timestamp-based filtering instead of point-based
-        series.data = filterDataByTimeWindow(currentData)
-        pendingData[cartId] = []
-      }
+          const currentData = series.data as [string, number][]
+          const newPoint: [string, number] = [dataUpdate.timestamp, cartData[props.value_type] as number]
+          
+          // Add the new data point
+          currentData.push(newPoint)
+        })
+      })
+
+      // Apply filtering to all series after processing all updates
+      chartOptions.value.series.forEach(series => {
+        series.data = filterDataByTimeWindow(series.data)
+      })
+      
+      // Clear pending updates and reset timeout
+      pendingData = []
       updateTimeout = null
     }, 10)
   }

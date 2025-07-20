@@ -1,42 +1,5 @@
 package main
 
-import (
-	"fmt"
-	"math/rand"
-)
-
-func handleRandomGoalGeneration(controllerGoalChannels []chan<- float64, randomControlChannel <-chan ControlMessage) {
-	var stopChannels = make([]chan struct{}, len(controllerGoalChannels))
-
-	for msg := range randomControlChannel {
-		if msg.Command == "randomGoals" {
-			if msg.Enabled {
-				fmt.Println("Starting automatic goal generation...")
-				for i, ch := range controllerGoalChannels {
-					stopChannels[i] = make(chan struct{})
-					go func(index int, channel chan<- float64, stop chan struct{}) {
-						for {
-							select {
-							case <-stop:
-								return
-							default:
-								goal := rand.Float64()*1200 + 200 // Random goal between 200 and 1400
-								channel <- goal
-								fmt.Printf("Generated goal for controller %d: %f\n", index, goal)
-							}
-						}
-					}(i, ch, stopChannels[i])
-				}
-			} else {
-				fmt.Println("Stopping automatic goal generation...")
-				for _, stop := range stopChannels {
-					stop <- struct{}{}
-				}
-			}
-		}
-	}
-}
-
 func main() {
 
 	// Initialize carts
@@ -77,26 +40,19 @@ func main() {
 	// Create a channel for random goal control from the frontend
 	randomControlChannel := make(chan ControlMessage, 10)
 
-	// Handle random goal generation
-	go handleRandomGoalGeneration(controllerGoalChannels, randomControlChannel)
+	// Create and start the goal manager
+	goalManager := NewGoalManager(controllerGoalChannels, randomControlChannel)
+	goalManager.Start()
 
 	go input_loop(controllerGoalChannels, exit_channel)
-
-	// And channels for controllers to send data to the WebSocket server
-	controllerDataChannels := []chan SocketData{}
-	for i := range controllers {
-		ch := make(chan SocketData, 1)
-		controllers[i].OutgoingData = ch
-		controllerDataChannels = append(controllerDataChannels, ch)
-	}
 
 	// Start the controllers
 	for i := range controllers {
 		go controllers[i].run_controller()
 	}
 
-	// Initialize the WebSocket server with the controller data channels
-	startWebsocketServer(controllerDataChannels, controllerGoalChannels, randomControlChannel)
+	// Initialize the WebSocket server with controllers
+	startWebsocketServer(controllers, controllerGoalChannels, randomControlChannel)
 
 	// wait for the exit signal
 	<-exit_channel

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { connectWebSocket, registerCallback, type SocketData } from '@/state';
+import { ref, onMounted, onUnmounted } from 'vue';
+import { useWebSocket, type SocketData } from '@/state';
 
 const props = defineProps({
     cart_id: Number,
@@ -11,9 +11,8 @@ const rightBorder = ref(0);
 const goal = ref(0);
 const state = ref<'Idle' | 'Moving' | 'Avoiding'>('Idle');
 const position = ref(0);
-const velocity = ref(0);
-const acceleration = ref(0);
-const jerk = ref(0);
+
+const { onCartData, isConnected } = useWebSocket();
 
 function updateData(data: SocketData) {
     if (data.id !== props.cart_id) return;
@@ -22,17 +21,18 @@ function updateData(data: SocketData) {
     goal.value = data.goal;
     state.value = data.state as 'Idle' | 'Moving' | 'Avoiding';
     position.value = data.position;
-    velocity.value = data.velocity;
-    acceleration.value = data.acceleration;
-    jerk.value = data.jerk;
 }
 
-onMounted(() => {
-  connectWebSocket();
+let cleanup: (() => void) | null = null;
 
-  registerCallback((data) => {
-    updateData(data);
-  });
+onMounted(() => {
+  cleanup = onCartData(updateData);
+});
+
+onUnmounted(() => {
+  if (cleanup) {
+    cleanup();
+  }
 });
 </script>
 
@@ -45,9 +45,6 @@ onMounted(() => {
     <p>Goal: {{ goal.toFixed(2) }}</p>
     <p>State: {{ state }}</p>
     <p>Position: {{ position.toFixed(2) }}</p>
-    <p>Velocity: {{ velocity.toFixed(2) }}</p>
-    <p>Acceleration: {{ acceleration.toFixed(2) }}</p>
-    <p>Jerk: {{ jerk.toFixed(2) }}</p>
     </div>
   </div>
 </template>

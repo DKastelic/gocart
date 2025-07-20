@@ -48,8 +48,8 @@
       <h4 class="section-title">Status</h4>
       <div class="status-item">
         <span class="status-label">Connection:</span>
-        <span :class="['status-value', connectionStatus === 'connected' ? 'connected' : 'disconnected']">
-          {{ connectionStatus }}
+        <span :class="['status-value', isConnected ? 'connected' : 'disconnected']">
+          {{ isConnected ? 'connected' : 'disconnected' }}
         </span>
       </div>
       <div class="status-item">
@@ -63,7 +63,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted } from 'vue';
+import { ref, reactive } from 'vue';
+import { useWebSocket } from '@/state';
 
 interface Cart {
   goal: number | null;
@@ -77,70 +78,20 @@ const carts = reactive<Cart[]>([
 ]);
 
 const randomGoalsEnabled = ref(false);
-const connectionStatus = ref<'connected' | 'disconnected'>('disconnected');
 
-let ws: WebSocket | null = null;
-
-function connectWebSocket() {
-  const wsUrl = `ws://localhost:8080/ws`;
-  ws = new WebSocket(wsUrl);
-  
-  ws.onopen = () => {
-    connectionStatus.value = 'connected';
-    console.log('Control WebSocket connected');
-  };
-  
-  ws.onclose = () => {
-    connectionStatus.value = 'disconnected';
-    console.log('Control WebSocket disconnected');
-    // Try to reconnect after 3 seconds
-    setTimeout(connectWebSocket, 3000);
-  };
-  
-  ws.onerror = (error) => {
-    console.error('Control WebSocket error:', error);
-  };
-}
-
-function sendControlMessage(command: string, data: any) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    const message = {
-      command,
-      ...data
-    };
-    ws.send(JSON.stringify(message));
-    console.log('Sent control message:', message);
-  } else {
-    console.error('WebSocket not connected');
-  }
-}
+const { setGoal: sendSetGoal, toggleRandomGoals: sendToggleRandomGoals, isConnected } = useWebSocket();
 
 function setGoal(cartIndex: number, goal: number | null) {
   if (goal !== null) {
-    sendControlMessage('setGoal', {
-      controller: cartIndex,
-      position: goal
-    });
+    sendSetGoal(cartIndex + 1, goal); // Convert to 1-based index
     console.log(`Set goal for cart ${cartIndex + 1}: ${goal}`);
   }
 }
 
 function toggleRandomGoals() {
-  sendControlMessage('randomGoals', {
-    enabled: randomGoalsEnabled.value
-  });
+  sendToggleRandomGoals(randomGoalsEnabled.value);
   console.log(`Random goals ${randomGoalsEnabled.value ? 'enabled' : 'disabled'}`);
 }
-
-onMounted(() => {
-  connectWebSocket();
-});
-
-onUnmounted(() => {
-  if (ws) {
-    ws.close();
-  }
-});
 </script>
 
 <style scoped>
