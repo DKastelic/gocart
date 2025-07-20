@@ -1,0 +1,152 @@
+// package main
+
+// import (
+// 	"math"
+// 	"time"
+// )
+
+// type MPC struct {
+// 	max_jerk         float64
+// 	max_acceleration float64
+// 	max_velocity     float64
+// }
+
+// type Trajectory struct {
+// 	start float64
+// 	end   float64
+// 	aMax  float64
+// 	vMax  float64
+// 	tJ    float64
+// 	tAJ   float64
+// 	tE    float64
+// 	t0    time.Time
+// }
+
+// // NewMPC creates a new MPC instance with the given parameters
+// func NewMPC(max_jerk, max_acceleration, max_velocity float64) *MPC {
+// 	return &MPC{
+// 		max_jerk:         max_jerk,
+// 		max_acceleration: max_acceleration,
+// 		max_velocity:     max_velocity,
+// 	}
+// }
+
+// func (mpc *MPC) CalculateTrajectory(start, end float64) Trajectory {
+// 	// Calculate the distance to move
+// 	sx := math.Abs(end - start)
+
+// 	// Precompute limits
+// 	sxLimit1 := 2 * math.Pow(mpc.max_acceleration, 3) / math.Pow(mpc.max_jerk, 2)
+// 	sxLimit2 := math.Pow(mpc.max_velocity, 2)/mpc.max_acceleration +
+// 		mpc.max_velocity*mpc.max_acceleration/mpc.max_jerk
+
+// 	var aMax, vMax, tJ, tAJ, tE float64
+
+// 	if sx/sxLimit1 <= 1 {
+// 		aMax = math.Pow(sx*math.Pow(mpc.max_jerk, 2)/2, 1.0/3.0)
+// 		vMax = math.Pow(aMax, 2) / mpc.max_jerk
+// 		tJ = aMax / mpc.max_jerk
+// 		tAJ = 2 * aMax / mpc.max_jerk
+// 		tE = 2 * tAJ
+// 	} else if sx/sxLimit2 <= 1 {
+// 		aMax = mpc.max_acceleration
+// 		term := 1 + 4*sx*math.Pow(mpc.max_jerk, 2)/math.Pow(mpc.max_acceleration, 3)
+// 		vMax = math.Pow(mpc.max_acceleration, 2) / (2 * mpc.max_jerk) * (-1 + math.Sqrt(term))
+// 		tJ = mpc.max_acceleration / mpc.max_jerk
+// 		tAJ = mpc.max_acceleration / (2 * mpc.max_jerk) * (1 + math.Sqrt(term))
+// 		tE = 2 * tAJ
+// 	} else {
+// 		aMax = mpc.max_acceleration
+// 		vMax = mpc.max_velocity
+// 		tJ = mpc.max_acceleration / mpc.max_jerk
+// 		tAJ = mpc.max_velocity/mpc.max_acceleration + mpc.max_acceleration/mpc.max_jerk
+// 		tE = sx/mpc.max_velocity + mpc.max_velocity/mpc.max_acceleration + mpc.max_acceleration/mpc.max_jerk
+// 	}
+
+// 	// fmt.Printf("Calculated trajectory: start=%.2f, end=%.2f, aMax=%.2f, vMax=%.2f, tJ=%.2f, tAJ=%.2f, tE=%.2f\n",
+// 	// 	start, end, aMax, vMax, tJ, tAJ, tE)
+
+// 	// return the trajectory
+// 	return Trajectory{
+// 		start: start,
+// 		end:   end,
+// 		aMax:  aMax,
+// 		vMax:  vMax,
+// 		tJ:    tJ,
+// 		tAJ:   tAJ,
+// 		tE:    tE,
+// 		t0:    time.Now(),
+// 	}
+// }
+
+// func (mpc *MPC) GetPosition(controller *Controller, trajectory Trajectory) float64 {
+// 	t := time.Since(trajectory.t0).Seconds()
+
+// 	// If trajectory is complete, return the target position
+// 	if t >= trajectory.tE {
+// 		controller.State = Idle
+// 		return trajectory.end
+// 	}
+
+// 	// Determine direction of movement
+// 	direction := 1.0
+// 	if trajectory.end < trajectory.start {
+// 		direction = -1.0
+// 	}
+
+// 	var position float64
+
+// 	// Phase 1: Increasing acceleration (0 to tJ)
+// 	if t <= trajectory.tJ {
+// 		// s = (1/6) * j * t^3
+// 		position = trajectory.start + direction*(mpc.max_jerk*t*t*t/6)
+// 	} else if t <= trajectory.tAJ-trajectory.tJ {
+// 		// Phase 2: Constant acceleration (tJ to tAJ-tJ)
+// 		dt := t - trajectory.tJ
+// 		s1 := mpc.max_jerk * trajectory.tJ * trajectory.tJ * trajectory.tJ / 6
+// 		v1 := mpc.max_jerk * trajectory.tJ * trajectory.tJ / 2
+// 		a1 := mpc.max_jerk * trajectory.tJ
+// 		// s = s1 + v1*dt + (1/2)*a1*dt^2
+// 		position = trajectory.start + direction*(s1+v1*dt+0.5*a1*dt*dt)
+// 	} else if t <= trajectory.tAJ {
+// 		// Phase 3: Reducing acceleration (tAJ-tJ to tAJ)
+// 		dt := t - (trajectory.tAJ - trajectory.tJ)
+// 		s1 := mpc.max_jerk * trajectory.tJ * trajectory.tJ * trajectory.tJ / 6
+// 		s2 := trajectory.aMax*trajectory.tJ*(trajectory.tAJ-2*trajectory.tJ) + 0.5*trajectory.aMax*(trajectory.tAJ-2*trajectory.tJ)*(trajectory.tAJ-2*trajectory.tJ)
+// 		v2 := trajectory.aMax * (trajectory.tAJ - trajectory.tJ)
+// 		a2 := trajectory.aMax
+// 		// s = s1 + s2 + v2*dt + (1/2)*a2*dt^2 - (1/6)*j*dt^3
+// 		position = trajectory.start + direction*(s1+s2+v2*dt+0.5*a2*dt*dt-mpc.max_jerk*dt*dt*dt/6)
+// 	} else if t <= trajectory.tE-trajectory.tAJ {
+// 		// Phase 4: Constant velocity (tAJ to tE-tAJ)
+// 		dt := t - trajectory.tAJ
+// 		sAccel := trajectory.vMax * trajectory.tAJ / 2 // Distance during acceleration
+// 		position = trajectory.start + direction*(sAccel+trajectory.vMax*dt)
+// 	} else {
+// 		// Deceleration phases (mirror of acceleration)
+// 		tDecel := t - (trajectory.tE - trajectory.tAJ)
+// 		sAccel := trajectory.vMax * trajectory.tAJ / 2
+// 		sConstVel := trajectory.vMax * (trajectory.tE - 2*trajectory.tAJ)
+
+// 		// Use symmetric calculation for deceleration
+// 		tRemaining := trajectory.tAJ - tDecel
+// 		var sDecel float64
+
+// 		if tRemaining >= trajectory.tJ {
+// 			// Still in constant deceleration phase
+// 			dt := tDecel
+// 			sDecel = trajectory.vMax*dt - 0.5*trajectory.aMax*(dt-trajectory.tJ)*(dt-trajectory.tJ)
+// 		} else if tRemaining > 0 {
+// 			// In final jerk phase
+// 			dt := trajectory.tJ - tRemaining
+// 			sDecel = trajectory.vMax*trajectory.tAJ/2 - mpc.max_jerk*dt*dt*dt/6
+// 		} else {
+// 			// Deceleration complete
+// 			sDecel = trajectory.vMax * trajectory.tAJ / 2
+// 		}
+
+// 		position = trajectory.start + direction*(sAccel+sConstVel+sDecel)
+// 	}
+
+// 	return position
+// }

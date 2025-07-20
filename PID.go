@@ -15,22 +15,16 @@ type PID struct {
 	Setpoint float64
 	// The output
 	Output float64
-	// The minimum output
-	MinOutput float64
-	// The maximum output
-	MaxOutput float64
 	// The sample time
 	SampleTime float64
 }
 
 // NewPID creates a new PID controller
-func NewPID(kp, ki, kd, minOutput, maxOutput, sampleTime float64) *PID {
+func NewPID(kp, ki, kd, sampleTime float64) *PID {
 	return &PID{
 		Kp:         kp,
 		Ki:         ki,
 		Kd:         kd,
-		MinOutput:  minOutput,
-		MaxOutput:  maxOutput,
 		SampleTime: sampleTime,
 	}
 }
@@ -38,23 +32,19 @@ func NewPID(kp, ki, kd, minOutput, maxOutput, sampleTime float64) *PID {
 // Update updates the PID controller
 func (pid *PID) Update(input float64) float64 {
 	// Calculate the error
-	error := pid.Setpoint - input
+	err := pid.Setpoint - input
 
 	// Calculate the integral of the error
-	pid.Integral += error * pid.SampleTime
+	pid.Integral += err * pid.SampleTime
 
 	// Calculate the derivative of the error
-	derivative := (error - pid.PreviousError) / pid.SampleTime
+	derivative := (err - pid.PreviousError) / pid.SampleTime
 
 	// Calculate the output
-	pid.Output = pid.Kp*error + pid.Ki*pid.Integral + pid.Kd*derivative
+	pid.Output = pid.Kp*err + pid.Ki*pid.Integral + pid.Kd*derivative
 
-	// Clamp the output to the minimum and maximum output
-	if pid.Output < pid.MinOutput {
-		pid.Output = pid.MinOutput
-	} else if pid.Output > pid.MaxOutput {
-		pid.Output = pid.MaxOutput
-	}
+	// Update the previous error
+	pid.PreviousError = err
 
 	return pid.Output
 }

@@ -25,11 +25,18 @@ func physics_loop(carts []Cart) {
 		for i := range carts {
 			cart := &carts[i]
 
-			// Update the cart's position based on its velocity
-			cart.Position += cart.Velocity * deltaTime
-			// Update the cart's velocity based on its acceleration
-			cart.Velocity += cart.Acceleration * deltaTime
-			// Update the cart's acceleration based on its force and mass
+			// Update using Newton's method (Euler's method)
+			// Position derivative is velocity
+			cart.Position = rk4_step(func(t, pos float64) float64 {
+				return cart.Velocity
+			}, float64(t.Unix()), cart.Position, deltaTime)
+
+			// Velocity derivative is acceleration
+			cart.Velocity = rk4_step(func(t, vel float64) float64 {
+				return cart.Acceleration
+			}, float64(t.Unix()), cart.Velocity, deltaTime)
+
+			// Acceleration is force divided by mass
 			cart.Acceleration = cart.Force / cart.Mass
 		}
 
