@@ -42,9 +42,27 @@ const { latestData } = useWebSocket();
 
 // Initialize cart visibility - only Cart 1 enabled by default
 const cartVisibility = reactive<Record<number, boolean>>({});
-for (let i = 1; i <= numColumns.value; i++) {
-  cartVisibility[i] = i === 1; // Only Cart 1 is enabled by default
+
+// Function to update cart visibility based on the number of carts
+function updateCartVisibility(numCarts: number) {
+  // Add new carts (disabled by default, except Cart 1)
+  for (let i = 1; i <= numCarts; i++) {
+    if (!(i in cartVisibility)) {
+      cartVisibility[i] = i === 1; // Only Cart 1 is enabled by default
+    }
+  }
+  
+  // Remove carts that no longer exist
+  Object.keys(cartVisibility).forEach(key => {
+    const cartId = parseInt(key)
+    if (cartId > numCarts) {
+      delete cartVisibility[cartId]
+    }
+  })
 }
+
+// Initialize with default 2 carts
+updateCartVisibility(numColumns.value)
 
 function updateVisibility() {
   // This function will be called when checkboxes change
@@ -54,7 +72,17 @@ function updateVisibility() {
 // Watch for changes in latestData
 watch(latestData, (newData) => {
   if (newData) {
-    allCartsData.value = newData;
+    allCartsData.value = {
+      carts: [...newData.carts], // Create mutable copy
+      timestamp: newData.timestamp
+    };
+    
+    // Update number of columns based on actual cart data
+    const actualNumCarts = newData.carts.length;
+    if (actualNumCarts !== numColumns.value) {
+      numColumns.value = actualNumCarts;
+      updateCartVisibility(actualNumCarts);
+    }
   }
 }, { immediate: true });
 

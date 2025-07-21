@@ -17,7 +17,7 @@ export type SocketData = {
   rightBorder: number;
   goal: number;
   setpoint: number;
-  state: 'Idle' | 'Processing' | 'Requesting' | 'Moving' | 'Avoiding';
+  state: 'Idle' | 'Busy' | 'Requesting' | 'Moving' | 'Stopping' | 'Stopped' | 'Avoiding';
 };
 
 export type AllCartsData = {
@@ -29,6 +29,34 @@ const connection = ref<WebSocket | null>(null)
 const isConnected = ref(false)
 const latestData = ref<AllCartsData | null>(null)
 const cartDataMap = reactive<Map<number, SocketData>>(new Map())
+const historicalData = ref<AllCartsData[]>([])
+
+async function fetchHistoricalData() {
+  try {
+    const response = await fetch('http://localhost:8080/api/historical-data')
+    if (response.ok) {
+      const data: AllCartsData[] = await response.json()
+      historicalData.value = data
+      console.log(`Loaded ${data.length} historical data points`)
+      
+      // Process historical data for charts
+      data.forEach(point => {
+        point.carts.forEach(cartData => {
+          const cartDataWithTimestamp = {
+            ...cartData,
+            timestamp: point.timestamp
+          }
+          // Call all registered callbacks for historical data
+          callbacks.value.forEach(cb => cb(cartDataWithTimestamp))
+        })
+      })
+    } else {
+      console.warn('Failed to fetch historical data:', response.statusText)
+    }
+  } catch (error) {
+    console.error('Error fetching historical data:', error)
+  }
+}
 
 function sendMessage(message: string) {
   if (connection.value) {
@@ -47,6 +75,8 @@ export function connectWebSocket(url: string = 'ws://localhost:8080/ws') {
   
   connection.value.onopen = () => {
     isConnected.value = true
+    // Fetch historical data when connection opens
+    fetchHistoricalData()
   }
   
   connection.value.onmessage = (event: MessageEvent) => {
@@ -108,6 +138,14 @@ export function useWebSocket() {
   // Register a callback for cart data updates
   const onCartData = (callback: (data: SocketData) => void) => {
     callbacks.value.push(callback)
+    
+    // Return cleanup function
+    return () => {
+      const index = callbacks.value.indexOf(callback)
+      if (index > -1) {
+        callbacks.value.splice(index, 1)
+      }
+    }
   }
 
   return {
@@ -115,12 +153,14 @@ export function useWebSocket() {
     isConnected: readonly(isConnected),
     latestData: readonly(latestData),
     cartDataMap: readonly(cartDataMap),
+    historicalData: readonly(historicalData),
     
     // Actions
     setGoal,
     toggleRandomGoals,
     getCartData,
     onCartData,
+    fetchHistoricalData,
     
     // Raw connection for advanced use
     connection: readonly(connection)

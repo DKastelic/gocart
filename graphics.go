@@ -54,8 +54,6 @@ func draw_loop(controllers []*Controller, exit_channel chan struct{}) {
 					switch controller.State {
 					case Idle:
 						cartColor = color.RGBA{0, 0, 255, 255} // Blue
-					case Processing:
-						cartColor = color.RGBA{255, 255, 0, 255} // Yellow
 					case Requesting:
 						cartColor = color.RGBA{255, 165, 0, 255} // Orange
 					case Moving:
@@ -77,10 +75,10 @@ func draw_loop(controllers []*Controller, exit_channel chan struct{}) {
 					draw.Draw(buffer.RGBA(), setpointRect, &image.Uniform{color.RGBA{0, 0, 0, 255}}, image.Point{}, draw.Src)
 
 					// Draw the left and right bounds as single pixel lines from top to bottom
-					leftBound := image.Rect(int(controller.LeftBound), 0, int(controller.LeftBound)+2, SCREEN_HEIGHT)
-					draw.Draw(buffer.RGBA(), leftBound, &image.Uniform{color.RGBA{0, 255, 0, 255}}, image.Point{}, draw.Src)
-					rightBound := image.Rect(int(controller.RightBound), 0, int(controller.RightBound)-2, SCREEN_HEIGHT)
-					draw.Draw(buffer.RGBA(), rightBound, &image.Uniform{color.RGBA{0, 255, 0, 255}}, image.Point{}, draw.Src)
+					// leftBound := image.Rect(int(controller.LeftBound), 0, int(controller.LeftBound)+2, SCREEN_HEIGHT)
+					// draw.Draw(buffer.RGBA(), leftBound, &image.Uniform{color.RGBA{0, 255, 0, 255}}, image.Point{}, draw.Src)
+					// rightBound := image.Rect(int(controller.RightBound), 0, int(controller.RightBound)-2, SCREEN_HEIGHT)
+					// draw.Draw(buffer.RGBA(), rightBound, &image.Uniform{color.RGBA{0, 255, 0, 255}}, image.Point{}, draw.Src)
 				}
 
 				// Upload to the window

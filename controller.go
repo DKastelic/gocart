@@ -7,13 +7,24 @@ import (
 	"time"
 )
 
+type RequestResult int
+
+const (
+	RequestSuccess RequestResult = iota
+	RequestWait
+	RequestReject
+	RequestTimeout
+)
+
 type ControllerState int
 
 const (
 	Idle ControllerState = iota
-	Processing
+	Busy
 	Requesting
 	Moving
+	Stopping
+	Stopped
 	Avoiding
 )
 
@@ -21,12 +32,16 @@ func (s ControllerState) String() string {
 	switch s {
 	case Idle:
 		return "Idle"
-	case Processing:
-		return "Processing"
+	case Busy:
+		return "Busy"
 	case Requesting:
 		return "Requesting"
 	case Moving:
 		return "Moving"
+	case Stopping:
+		return "Stopping"
+	case Stopped:
+		return "Stopped"
 	case Avoiding:
 		return "Avoiding"
 	default:
@@ -52,19 +67,24 @@ type Controller struct {
 	State        ControllerState
 	Goal         float64
 	GoalReceived time.Time
+	BusyUntil    time.Time // Used to track busy state duration
 
 	// The cart's old goal while avoiding
-	OldState ControllerState
-	OldGoal  float64
+	OldGoal    float64
+	HasOldGoal bool
 
 	// Current bounds
-	LeftBound    float64
-	RightBound   float64
+	LeftBound    Trajectory
+	RightBound   Trajectory
 	SafetyMargin float64
 
+	// Goal retry mechanism for WAIT responses
+	PendingGoal      float64
+	PendingRetryTime time.Time
+	HasPendingGoal   bool
+
 	// Channel for accepting and responding to goal requests
-	IncomingGoalRequest  <-chan float64
-	OutgoingGoalResponse chan<- Response
+	IncomingGoalRequest <-chan float64
 
 	// Channels for communication with the neighboring carts
 	IncomingLeftRequest   <-chan Request
@@ -79,33 +99,27 @@ type Controller struct {
 
 // NewController creates a new controller with the given PID controllers
 func NewController(cart *Cart, leftBound, rightBound float64) *Controller {
+	movementPlanner := NewMovementPlanner(200, 100, 300)
+
 	return &Controller{
 		Cart:            cart,
 		Goal:            cart.Position,
-		VelocityPID:     NewPID(20, 0, 0.2, 0.01),
-		PositionPID:     NewPID(3, 0, 0.03, 0.01),
+		VelocityPID:     NewPID(150, 0, 0, 0.01), // Reduced Kp, added Ki, reduced Kd
+		PositionPID:     NewPID(100, 0, 0, 0.01), // Reduced Kp, added Ki, increased Kd
 		MovementPlanner: NewMovementPlanner(200, 100, 300),
 		State:           Idle,
-		LeftBound:       leftBound,
-		RightBound:      rightBound,
-		SafetyMargin:    30,
+		LeftBound:       movementPlanner.CalculateTrajectory(leftBound, leftBound),
+		RightBound:      movementPlanner.CalculateTrajectory(rightBound, rightBound),
+		SafetyMargin:    40,
 	}
 }
 
-func (controller *Controller) checkForNewGoal() {
-	select {
-	case goal := <-controller.IncomingGoalRequest:
-		controller.processGoal(goal)
-	default:
-		// if the channel is empty, do nothing
-	}
-}
-
-func (controller *Controller) acceptGoal(goal float64) {
+func (controller *Controller) acceptGoal(goal float64, acceptState ControllerState) {
 	// accept the goal
 	fmt.Println(controller.Cart.Name, ": Goal accepted: ", goal)
 	controller.Goal = goal
-	controller.State = Moving
+	fmt.Println(controller.Cart.Name, ": State changed from ", controller.State.String(), " to ", acceptState.String())
+	controller.State = acceptState
 
 	// execute the MPC trajectory
 	trajectory := controller.MovementPlanner.CalculateTrajectory(controller.Cart.Position, controller.Goal)
@@ -113,24 +127,27 @@ func (controller *Controller) acceptGoal(goal float64) {
 }
 
 func (controller *Controller) boundedPositionSetpoint() float64 {
-	unboundedPositionSetpoint := controller.MovementPlanner.GetCurrentTrajectoryPosition(controller.MPCTrajectory)
-	return unboundedPositionSetpoint // TODO: clamp to bounds once bounds are moving too or something
-	// return math.Min(math.Max(unboundedPositionSetpoint, controller.LeftBound+controller.SafetyMargin), controller.RightBound-controller.SafetyMargin)
+	unboundedPositionSetpoint := controller.MPCTrajectory.GetCurrentPosition()
+	// leftBound := controller.LeftBound.GetCurrentPosition()
+	// rightBound := controller.RightBound.GetCurrentPosition()
+	// return clamp(unboundedPositionSetpoint, leftBound+controller.SafetyMargin, rightBound-controller.SafetyMargin)
+	return unboundedPositionSetpoint
 }
 
-func (controller *Controller) requestBoundMove(proposedBorder float64, outgoingRequest chan<- Request, incomingResponse <-chan Response) bool {
+func (controller *Controller) requestBoundMove(proposedBorder Trajectory, outgoingRequest chan<- Request, incomingResponse <-chan Response) RequestResult {
 	if controller.State == Avoiding {
 		fmt.Println(controller.Cart.Name, ": Already avoiding, cannot request bound move")
-		return false
+		return RequestReject
 	}
 
+	fmt.Println(controller.Cart.Name, ": State changed from ", controller.State.String(), " to ", Requesting.String())
 	controller.State = Requesting
 
-	fmt.Println(controller.Cart.Name, ": Requesting to move border to: ", proposedBorder)
+	fmt.Println(controller.Cart.Name, ": Requesting to move border.")
 
 	if outgoingRequest == nil {
 		fmt.Println(controller.Cart.Name, ": Hard bound, rejecting request locally")
-		return false
+		return RequestReject
 	}
 
 	request := Request{
@@ -143,84 +160,123 @@ func (controller *Controller) requestBoundMove(proposedBorder float64, outgoingR
 		response := <-incomingResponse
 		switch response {
 		case WAIT:
-			d := rand.IntN(700) + 300 // wait between 0.3 and 1 seconds
-			fmt.Println(controller.Cart.Name, ": Waiting for response, will retry in ", d, "ms")
-			fmt.Println(controller.Cart.Name, ": Waiting")
-			time.Sleep(time.Duration(d) * time.Millisecond)
-			return controller.requestBoundMove(proposedBorder, outgoingRequest, incomingResponse)
+			fmt.Println(controller.Cart.Name, ": Request denied - told to wait")
+			return RequestWait
 		case ACCEPT:
-			return true
+			return RequestSuccess
 		case REJECT:
-			return false
+			return RequestReject
 		}
 	case <-time.After(1000 * time.Millisecond):
 		fmt.Println(controller.Cart.Name, ": Request timed out")
-		return false
+		return RequestTimeout
 	}
-	return false // unreachable but needed to satisfy the compiler
+	return RequestReject // unreachable but needed to satisfy the compiler
 }
 
-func (controller *Controller) processGoal(goal float64) bool {
+func (controller *Controller) rejectGoal(rejectState ControllerState) {
+	// if the left bound is rejected, reject the goal
+	fmt.Println(controller.Cart.Name, ": Goal rejected: ", controller.Goal)
+	controller.State = rejectState
+}
+
+func (controller *Controller) processGoal(goal float64, acceptState ControllerState, rejectState ControllerState) bool {
 
 	fmt.Println(controller.Cart.Name, ": Processing goal: ", goal)
-	controller.State = Processing
 
-	controller.GoalReceived = time.Now()
+	leftBound := controller.LeftBound.end
+	rightBound := controller.RightBound.end
 
 	// check if the goal is within bounds
-	if goal < controller.LeftBound+controller.SafetyMargin {
+	if goal < leftBound+controller.SafetyMargin {
 		// if we have a cart to the left, ask to move the left bound
 		proposedLeftBorder := goal - controller.SafetyMargin
-		success := controller.requestBoundMove(proposedLeftBorder, controller.OutgoingLeftRequest, controller.IncomingLeftResponse)
-		if success {
-			controller.LeftBound = proposedLeftBorder
-			controller.acceptGoal(goal)
-		} else {
-			// if the left bound is rejected, reject the goal
-			fmt.Println(controller.Cart.Name, ": Left bound rejected, goal rejected: ", goal)
-			controller.State = Idle
+		proposedTrajectoryMove := controller.MovementPlanner.CalculateTrajectory(leftBound, proposedLeftBorder)
+		result := controller.requestBoundMove(proposedTrajectoryMove, controller.OutgoingLeftRequest, controller.IncomingLeftResponse)
+		switch result {
+		case RequestSuccess:
+			proposedTrajectoryMove.t0 = time.Now() // reset the start time of the trajectory
+			controller.LeftBound = proposedTrajectoryMove
+			controller.acceptGoal(goal, acceptState)
+			return true
+		case RequestWait:
+			// Temporary failure - set up retry
+			retryDelay := time.Duration(rand.IntN(700)+300) * time.Millisecond
+			controller.PendingGoal = goal
+			controller.PendingRetryTime = time.Now().Add(retryDelay)
+			controller.HasPendingGoal = true
+			fmt.Println(controller.Cart.Name, ": Goal temporarily rejected (WAIT), will retry in ", retryDelay)
+			controller.rejectGoal(rejectState)
+			return false
+		default: // RequestReject or RequestTimeout
+			// Permanent failure - give up
+			fmt.Println(controller.Cart.Name, ": Goal permanently rejected")
+			controller.rejectGoal(rejectState)
+			return false
 		}
-		return success
 
-	} else if goal > controller.RightBound-controller.SafetyMargin {
+	} else if goal > rightBound-controller.SafetyMargin {
 		// if we have a cart to the right, ask to move the right bound
 		proposedRightBorder := goal + controller.SafetyMargin
-		success := controller.requestBoundMove(proposedRightBorder, controller.OutgoingRightRequest, controller.IncomingRightResponse)
-		if success {
-			controller.RightBound = proposedRightBorder
-			controller.acceptGoal(goal)
-		} else {
-			// if the right bound is rejected, reject the goal
-			fmt.Println(controller.Cart.Name, ": Right bound rejected, goal rejected: ", goal)
-			controller.State = Idle
+		proposedTrajectoryMove := controller.MovementPlanner.CalculateTrajectory(rightBound, proposedRightBorder)
+		result := controller.requestBoundMove(proposedTrajectoryMove, controller.OutgoingRightRequest, controller.IncomingRightResponse)
+		switch result {
+		case RequestSuccess:
+			proposedTrajectoryMove.t0 = time.Now() // reset the start time of the trajectory
+			controller.RightBound = proposedTrajectoryMove
+			controller.acceptGoal(goal, acceptState)
+			return true
+		case RequestWait:
+			// Temporary failure - set up retry
+			retryDelay := time.Duration(rand.IntN(700)+300) * time.Millisecond
+			controller.PendingGoal = goal
+			controller.PendingRetryTime = time.Now().Add(retryDelay)
+			controller.HasPendingGoal = true
+			fmt.Println(controller.Cart.Name, ": Goal temporarily rejected (WAIT), will retry in ", retryDelay)
+			controller.rejectGoal(rejectState)
+			return false
+		default: // RequestReject or RequestTimeout
+			// Permanent failure - give up
+			fmt.Println(controller.Cart.Name, ": Goal permanently rejected")
+			controller.rejectGoal(rejectState)
+			return false
 		}
-		return success
 	} else {
 		// accept the goal
-		controller.acceptGoal(goal)
+		controller.acceptGoal(goal, acceptState)
 		return true
 	}
 }
 
-func (controller *Controller) avoidCollision(newGoal float64, outgoingResponse chan<- Response) {
-	// save the old goal
-	controller.OldState = controller.State
-	controller.OldGoal = controller.Goal
-
-	// set the new goal
-	if controller.processGoal(newGoal) {
-		fmt.Println(controller.Cart.Name, ": Avoiding collision, new goal: ", newGoal)
-
-		// set the state to avoiding
-		controller.State = Avoiding
-
-		// send a response to the other cart
-		outgoingResponse <- ACCEPT // TODO: unsafe
+func (controller *Controller) avoidCollision(newGoal float64, outgoingResponse chan<- Response) bool {
+	if controller.processGoal(newGoal, Avoiding, controller.State) {
+		fmt.Println(controller.Cart.Name, ": Emergency stop complete, avoiding collision with new goal: ", newGoal)
+		outgoingResponse <- ACCEPT
+		return true
 	} else {
-		fmt.Println(controller.Cart.Name, ": Cannot avoid collision, rejecting request: ", newGoal)
-
+		fmt.Println(controller.Cart.Name, ": Emergency stop complete but cannot avoid collision, rejecting request: ", newGoal)
 		outgoingResponse <- REJECT
+		return false
 	}
+}
+
+func (controller *Controller) emergencyStop(outgoingResponse chan<- Response) {
+	// save the old goal
+	controller.OldGoal = controller.Goal
+	controller.HasOldGoal = true
+	controller.State = Stopping
+
+	// First, send WAIT response to indicate we're stopping
+	fmt.Println(controller.Cart.Name, ": Emergency stopping before avoiding collision")
+	outgoingResponse <- WAIT
+
+	// Create emergency stop trajectory
+	emergencyTrajectory := controller.MovementPlanner.EmergencyStop(&controller.MPCTrajectory)
+	controller.MPCTrajectory = emergencyTrajectory
+
+	// Set state to avoiding (we'll handle the emergency stop in the main loop)
+	fmt.Println(controller.Cart.Name, ": State changed from ", controller.State.String(), " to ", Stopping.String())
+	controller.State = Stopping
 }
 
 func clamp(value, min, max float64) float64 {
@@ -232,95 +288,119 @@ func (controller *Controller) run_controller() {
 	fmt.Println(controller.Cart.Name, ": Starting controller")
 
 	// first accept the goal to initial position (to initialize the MPC)
-	controller.acceptGoal(controller.Cart.Position)
+	controller.acceptGoal(controller.Cart.Position, Idle)
 
-	// Run the PIDs in a separate goroutine
-	go func() {
-		ticker := time.NewTicker(time.Second / 100)
-		defer ticker.Stop()
-		for range ticker.C {
+	// Single ticker for all control loops (100Hz)
+	ticker := time.NewTicker(time.Second / 100)
+	defer ticker.Stop()
+
+	for {
+		select {
+		// Handle incoming left requests
+		case request := <-controller.IncomingLeftRequest:
+			proposedLeftBorder := request.proposed_border
+			proposedLeftBorder.t0 = time.Now() // reset the start time of the trajectory
+			fmt.Println(controller.Cart.Name, ": Received request to move left bound to ", proposedLeftBorder.end)
+			if controller.Goal > proposedLeftBorder.end+controller.SafetyMargin {
+				fmt.Println(controller.Cart.Name, ": Accepting request to move left bound.")
+				controller.OutgoingLeftResponse <- Response(ACCEPT)
+				controller.LeftBound = proposedLeftBorder
+			} else if controller.State == Idle || controller.State == Stopped {
+				// we have come to an emergency stop, so we can accept the request
+				if controller.avoidCollision(proposedLeftBorder.end+1.1*controller.SafetyMargin, controller.OutgoingLeftResponse) {
+					controller.LeftBound = proposedLeftBorder
+				}
+			} else if controller.State == Moving && request.priority.Before(controller.GoalReceived) {
+				fmt.Println(controller.Cart.Name, ": Yielding right of way to left bound request.")
+				// if the other cart's goal is older than our goal, we yield right of way to it
+				// otherwise we tell it to wait until we complete our goal
+				controller.emergencyStop(controller.OutgoingLeftResponse)
+			} else {
+				fmt.Println(controller.Cart.Name, ": Cannot accept request to move left bound, rejecting request.")
+				controller.OutgoingLeftResponse <- Response(WAIT)
+			}
+
+		// Handle incoming right requests
+		case request := <-controller.IncomingRightRequest:
+			proposedRightBorder := request.proposed_border
+			proposedRightBorder.t0 = time.Now() // reset the start time of the trajectory
+			fmt.Println(controller.Cart.Name, ": Received request to move right bound to  ", proposedRightBorder.end)
+			if controller.Goal < proposedRightBorder.end-controller.SafetyMargin {
+				fmt.Println(controller.Cart.Name, ": Accepting request to move right bound.")
+				controller.RightBound = proposedRightBorder // TODO: unsafe
+				controller.OutgoingRightResponse <- Response(ACCEPT)
+			} else if controller.State == Idle || controller.State == Stopped {
+				// we have come to an emergency stop, so we can accept the request
+				if controller.avoidCollision(proposedRightBorder.end-1.1*controller.SafetyMargin, controller.OutgoingRightResponse) {
+					controller.RightBound = proposedRightBorder
+				}
+			} else if controller.State == Moving && request.priority.Before(controller.GoalReceived) {
+				fmt.Println(controller.Cart.Name, ": Yielding right of way to right bound request.")
+				// if the other cart's goal is older than our goal, we yield right of way to it
+				// otherwise we tell it to wait until we complete our goal
+				controller.emergencyStop(controller.OutgoingRightResponse)
+			} else {
+				fmt.Println(controller.Cart.Name, ": Cannot accept request to move right bound, rejecting request.")
+				controller.OutgoingRightResponse <- Response(WAIT)
+			}
+
+		// Main control loop - runs at 100Hz
+		case <-ticker.C:
+			// PID control updates
 			controller.PositionPID.SetSetpoint(controller.boundedPositionSetpoint())
 			control_velocity := controller.PositionPID.Update(controller.Cart.Position)
 			controller.VelocityPID.SetSetpoint(control_velocity)
 			control_force := controller.VelocityPID.Update(controller.Cart.Velocity)
-
 			controller.Cart.applyForce(control_force)
-		}
-	}()
 
-	// handle incoming requests in a separate goroutine
-	go func() {
-		for {
-			select {
-			case request := <-controller.IncomingLeftRequest:
-				proposedLeftBorder := request.proposed_border
-				fmt.Println(controller.Cart.Name, ": Received request to move left bound to: ", proposedLeftBorder)
-				if controller.Goal > proposedLeftBorder+controller.SafetyMargin {
-					fmt.Println(controller.Cart.Name, ": Accepting request to move left bound to: ", proposedLeftBorder)
-					controller.OutgoingLeftResponse <- Response(ACCEPT)
-					controller.LeftBound = proposedLeftBorder
-				} else {
-					if controller.State == Avoiding {
-						// if we are avoiding, we cannot accept the request
-						controller.OutgoingLeftResponse <- Response(WAIT)
-					} else if request.priority.Before(controller.GoalReceived) || controller.State == Idle {
-						// if the other cart's goal is older than our goal, we yield right of way to it
-						// otherwise we tell it to wait until we complete our goal
-						controller.LeftBound = proposedLeftBorder // TODO: unsafe
-						controller.avoidCollision(proposedLeftBorder+1.1*controller.SafetyMargin, controller.OutgoingLeftResponse)
-					} else {
-						controller.OutgoingLeftResponse <- Response(WAIT)
+			// State machine updates
+			switch controller.State {
+			case Idle:
+				// Check for pending goal retry
+				if controller.HasPendingGoal && time.Now().After(controller.PendingRetryTime) {
+					fmt.Println(controller.Cart.Name, ": Retrying pending goal: ", controller.PendingGoal)
+					controller.HasPendingGoal = false
+					controller.processGoal(controller.PendingGoal, Moving, Idle)
+				} else if !controller.HasPendingGoal {
+					// check if we have a new goal on the incoming goal channel
+					select {
+					case goal := <-controller.IncomingGoalRequest:
+						controller.GoalReceived = time.Now()
+						// pass the goal to the processGoal function
+						controller.processGoal(goal, Moving, Idle)
+					default:
+						// no new goal, do nothing
 					}
 				}
-			case request := <-controller.IncomingRightRequest:
-				proposedRightBorder := request.proposed_border
-				fmt.Println(controller.Cart.Name, ": Received request to move right bound to: ", proposedRightBorder)
-				if controller.Goal < proposedRightBorder-controller.SafetyMargin {
-					fmt.Println(controller.Cart.Name, ": Accepting request to move right bound to: ", proposedRightBorder)
-					controller.OutgoingRightResponse <- Response(ACCEPT)
-					controller.RightBound = proposedRightBorder
-				} else {
-					if controller.State == Avoiding {
-						// if we are avoiding, we cannot accept the request
-						controller.OutgoingRightResponse <- Response(WAIT)
-						fmt.Println(controller.Cart.Name, ": Rejecting request to move right bound to: ", proposedRightBorder)
-					} else if request.priority.Before(controller.GoalReceived) || controller.State == Idle {
-						// if the other cart's goal is older than our goal, we yield right of way to it
-						// otherwise we tell it to wait until we complete our goal
-						controller.RightBound = proposedRightBorder // TODO: unsafe
-						controller.avoidCollision(proposedRightBorder-1.1*controller.SafetyMargin, controller.OutgoingRightResponse)
-					} else {
-						controller.OutgoingRightResponse <- Response(WAIT)
-					}
-				}
-			}
-		}
-	}()
-
-	ticker := time.NewTicker(time.Second / 100)
-	defer ticker.Stop()
-
-	// Run the controller in a loop
-	for range ticker.C {
-		switch controller.State {
-		case Idle:
-			controller.checkForNewGoal()
-		case Moving:
-			// check if the cart is close to the goal
-			if math.Abs(controller.Cart.Position-controller.Goal) < 10 {
-				// goal reached, go back to idle
-				fmt.Println(controller.Cart.Name, ": Goal reached: ", controller.Goal)
-				controller.State = Idle
-			}
-		case Avoiding:
-			// check if we have moved out of the way
-			if math.Abs(controller.Cart.Position-controller.Goal) < 10 {
-				// goal reached, go back to old state
-				if controller.OldState == Moving {
-					controller.State = Moving
-					controller.processGoal(controller.OldGoal)
-				} else {
+			case Busy:
+				if time.Now().After(controller.BusyUntil) {
 					controller.State = Idle
+					fmt.Println(controller.Cart.Name, ": State changed from ", Busy.String(), " to ", Idle.String())
+				}
+			case Requesting:
+				// The request is being handled in requestBoundMove function
+				// This state will be exited when the function completes
+			case Moving:
+				// check if we have reached the goal
+				if controller.MPCTrajectory.IsFinished() {
+					// goal reached, go to busy for a random time
+					controller.State = Busy
+					controller.BusyUntil = time.Now().Add(time.Duration(rand.IntN(500)+500) * time.Millisecond) // busy for 0.5 to 1 second
+					fmt.Println(controller.Cart.Name, ": State changed from ", Moving.String(), " to ", Busy.String())
+				}
+			case Stopping:
+				// check if we have stopped
+				if controller.MPCTrajectory.IsFinished() {
+					controller.State = Stopped
+				}
+			case Avoiding:
+				if controller.MPCTrajectory.IsFinished() {
+					if controller.HasOldGoal {
+						controller.processGoal(controller.OldGoal, Moving, Idle)
+						controller.HasOldGoal = false // Clear the old goal after processing
+					} else {
+						controller.State = Idle
+					}
 				}
 			}
 		}

@@ -142,6 +142,12 @@ function updateSeriesVisibility() {
 initializeSeries()
 updateSeriesVisibility() // Apply initial visibility settings
 
+// Watch for changes in num_carts prop to reinitialize series
+watch(() => props.num_carts, () => {
+  initializeSeries()
+  updateSeriesVisibility()
+})
+
 // Watch for cart visibility changes
 watch(() => props.cart_visibility, () => {
   updateSeriesVisibility()
@@ -179,6 +185,8 @@ watch(() => props.data, (newData) => {
           const cartId = cartData.id
           const seriesIndex = cartId - 1
           const series = chartOptions.value.series[seriesIndex]
+          
+          // Skip if series doesn't exist for this cart
           if (!series) return
 
           const currentData = series.data as [string, number][]

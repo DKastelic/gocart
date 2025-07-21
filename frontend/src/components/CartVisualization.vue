@@ -33,9 +33,11 @@ const CART_HEIGHT = 40;
 // State colors matching the Go implementation
 const stateColors = {
   'Idle': '#0000FF',        // Blue
-  'Processing': '#FFFF00',  // Yellow
+  'Busy': '#9932CC',        // Purple
   'Requesting': '#FFA500',  // Orange
   'Moving': '#00FF00',      // Green
+  'Stopping': '#FFFF00',    // Yellow
+  'Stopped': '#FF6347',     // Tomato
   'Avoiding': '#FF0000'     // Red
 } as const;
 
@@ -139,9 +141,11 @@ function drawLegend() {
   // Legend items
   const states = [
     { name: 'Idle', color: stateColors.Idle },
-    { name: 'Processing', color: stateColors.Processing },
+    { name: 'Busy', color: stateColors.Busy },
     { name: 'Requesting', color: stateColors.Requesting },
     { name: 'Moving', color: stateColors.Moving },
+    { name: 'Stopping', color: stateColors.Stopping },
+    { name: 'Stopped', color: stateColors.Stopped },
     { name: 'Avoiding', color: stateColors.Avoiding }
   ];
   

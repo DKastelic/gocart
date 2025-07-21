@@ -12,11 +12,14 @@ const (
 )
 
 type Request struct {
-	proposed_border float64
+	proposed_border Trajectory
 	priority        time.Time
 }
 
 func connectControllers(leftController, rightController *Controller) {
+	// give them 1 capacity to make them non-blocking
+	// this is to avoid deadlocks when one controller is waiting for the other
+	// to respond to a request
 	leftToRightRequest := make(chan Request)
 	rightToLeftRequest := make(chan Request)
 	leftToRightResponse := make(chan Response)
