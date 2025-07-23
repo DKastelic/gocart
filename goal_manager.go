@@ -81,6 +81,7 @@ func (gm *GoalManager) generateGoalsForController(index int, channel chan<- floa
 		default:
 			goal := rand.Float64()*1200 + 200 // Random goal between 200 and 1400
 			channel <- goal
+			fmt.Printf("Generated random goal for controller %d: %.2f\n", index+1, goal)
 		}
 	}
 }

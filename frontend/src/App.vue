@@ -15,7 +15,7 @@ function setActiveTab(tab: 'visualization' | 'charts') {
   <div class="app-container">
     <!-- Header -->
     <header class="app-header">
-      <h1 class="app-title">GoCart Control Dashboard</h1>
+      <h1 class="app-title">Dashboard</h1>
       
       <!-- Tab Navigation -->
       <nav class="tab-navigation">

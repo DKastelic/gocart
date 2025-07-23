@@ -17,6 +17,14 @@ func main() {
 		NewController(&carts[2], 800, 1200),
 		NewController(&carts[3], 1200, 1600),
 	}
+	// carts := []Cart{
+	// 	{Name: "Cart 1", Id: 1, Position: 400, Velocity: 0, Acceleration: 0, Mass: 1, Force: 0, Width: 50, Height: 40},
+	// 	{Name: "Cart 2", Id: 2, Position: 1200, Velocity: 0, Acceleration: 0, Mass: 1, Force: 0, Width: 50, Height: 40},
+	// }
+	// controllers := []*Controller{
+	// 	NewController(&carts[0], 0, 800),
+	// 	NewController(&carts[1], 800, 1600),
+	// }
 
 	for i := 0; i < len(controllers)-1; i++ {
 		connectControllers(controllers[i], controllers[i+1])
@@ -44,7 +52,7 @@ func main() {
 	goalManager := NewGoalManager(controllerGoalChannels, randomControlChannel)
 	goalManager.Start()
 
-	go input_loop(controllerGoalChannels, exit_channel)
+	go input_loop(controllerGoalChannels, exit_channel, randomControlChannel)
 
 	// Start the controllers
 	for i := range controllers {

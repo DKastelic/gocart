@@ -3,16 +3,13 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"math/rand"
 	"os"
 	"strconv"
 	"strings"
 )
 
-func input_loop(controllerGoalChannels []chan<- float64, exit_channel chan struct{}) {
+func input_loop(controllerGoalChannels []chan<- float64, exit_channel chan struct{}, randomControlChannel chan<- ControlMessage) {
 	in := bufio.NewReader(os.Stdin)
-
-	stop_generation_channels := make([]chan struct{}, len(controllerGoalChannels))
 
 	fmt.Println("Usage: \n" +
 		"goal <controller_index> <goal_position> - Set a goal for a specific controller.\n" +
@@ -63,29 +60,12 @@ func input_loop(controllerGoalChannels []chan<- float64, exit_channel chan struc
 			}
 			generateRandomGoals := words[1] == "on"
 
-			if generateRandomGoals {
-				fmt.Println("Starting automatic goal generation...")
-				for i, ch := range controllerGoalChannels {
-					stop_generation_channels[i] = make(chan struct{})
-					go func(index int, channel chan<- float64, stop chan struct{}) {
-						for {
-							select {
-							case <-stop:
-								return
-							default:
-								goal := rand.Float64()*1200 + 200 // Random goal between 200 and 1400
-								channel <- goal
-								fmt.Printf("Generated goal for controller %d: %f\n", index, goal)
-							}
-						}
-					}(i, ch, stop_generation_channels[i])
-				}
-			} else {
-				fmt.Println("Stopping automatic goal generation...")
-				for _, stop := range stop_generation_channels {
-					stop <- struct{}{}
-				}
+			// Send control message to goal manager
+			controlMsg := ControlMessage{
+				Command: "randomGoals",
+				Enabled: generateRandomGoals,
 			}
+			randomControlChannel <- controlMsg
 
 		default:
 			fmt.Println("Unknown command:", input)

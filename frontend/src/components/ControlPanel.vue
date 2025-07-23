@@ -37,9 +37,6 @@
           />
           <span class="checkbox-text">Enable Random Goal Generation</span>
         </label>
-        <p class="random-description">
-          Automatically generates random goals for all carts every 2 seconds
-        </p>
       </div>
     </div>
 
