@@ -84,7 +84,7 @@ func NewController(cart *Cart, leftBorder, rightBorder float64) *Controller {
 		LeftBorderTrajectory:  &leftBorderTrajectory,
 		RightBorderTrajectory: &rightBorderTrajectory,
 		CurrentTrajectory:     &currentTrajectory,
-		IncomingGoalRequest:   make(chan float64, 10), // Buffered to prevent blocking
+		IncomingGoalRequest:   make(chan float64), // Buffered to prevent blocking
 		State:                 Idle,
 		QueuedRequests:        make(map[int64]RequestParameters),
 	}
@@ -154,6 +154,12 @@ func (c *Controller) runPIDControllers() {
 
 func (c *Controller) handleGoalRequest(goal float64) {
 	fmt.Println(c.Cart.Name, ": received goal request:", goal)
+
+	if c.State != Idle {
+		fmt.Println(c.Cart.Name, ": Ignoring goal request while not idle.")
+		return
+	}
+
 	if c.LeftBorderTrajectory.end+c.safetyMargin < goal && goal < c.RightBorderTrajectory.end-c.safetyMargin {
 		c.acceptGoal(goal)
 	} else {
@@ -264,7 +270,7 @@ func (c *Controller) handleRejectResponse(requestParams RequestParameters, side 
 
 func (c *Controller) handleWaitResponse(requestParams RequestParameters, side Side) {
 	fmt.Println(c.Cart.Name, ": Border move request waiting for response.")
-	requestParams.RetryTime = time.Now().Add(100 * time.Millisecond) // Retry after 100ms
+	requestParams.RetryTime = time.Now().Add(1000 * time.Millisecond) // Retry after 1000ms
 	c.QueuedRequests[requestParams.Request.RequestId] = requestParams
 }
 
@@ -273,6 +279,7 @@ func (c *Controller) handleIncomingRequest(request Request, side Side) {
 
 	if side == Left {
 		if request.ProposedBorderEnd < c.CurrentTrajectory.end-c.safetyMargin {
+			fmt.Println(c.Cart.Name, ": Proposed border end is", request.ProposedBorderEnd, "while we would accept anything less than", c.CurrentTrajectory.end-c.safetyMargin)
 			c.acceptRequest(
 				func(t *Trajectory) { c.LeftBorderTrajectory = t },
 				c.OutgoingLeftResponse,
@@ -282,7 +289,8 @@ func (c *Controller) handleIncomingRequest(request Request, side Side) {
 			c.postponeRequest(c.OutgoingLeftResponse, request)
 		}
 	} else {
-		if request.ProposedBorderStart > c.CurrentTrajectory.end+c.safetyMargin {
+		if request.ProposedBorderEnd > c.CurrentTrajectory.end+c.safetyMargin {
+			fmt.Println(c.Cart.Name, ": Proposed border end is", request.ProposedBorderEnd, "while we would accept anything more than", c.CurrentTrajectory.end+c.safetyMargin)
 			c.acceptRequest(
 				func(t *Trajectory) { c.RightBorderTrajectory = t },
 				c.OutgoingRightResponse,

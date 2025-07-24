@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"time"
 )
 
 // GoalManager handles random goal generation for controllers
@@ -81,6 +82,7 @@ func (gm *GoalManager) generateGoalsForController(index int, channel chan<- floa
 		default:
 			goal := rand.Float64()*1200 + 200 // Random goal between 200 and 1400
 			channel <- goal
+			time.Sleep(time.Duration(rand.Intn(2000)) * time.Millisecond) // Random delay between 0 and 2 seconds
 			fmt.Printf("Generated random goal for controller %d: %.2f\n", index+1, goal)
 		}
 	}
