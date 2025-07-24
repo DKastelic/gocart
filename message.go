@@ -1,29 +1,32 @@
 package main
 
-import "time"
-
-type Response int
+type ResponseType int
 
 const (
-	ACCEPT Response = iota
+	ACCEPT ResponseType = iota
 	REJECT
 	WAIT
-	GOAL_REACHED
 )
 
+type Response struct {
+	RequestId int64
+	Type      ResponseType
+}
+
 type Request struct {
-	proposed_border Trajectory
-	priority        time.Time
+	RequestId           int64
+	ProposedBorderStart float64
+	ProposedBorderEnd   float64
 }
 
 func connectControllers(leftController, rightController *Controller) {
-	// give them 1 capacity to make them non-blocking
+	// give them capacity to make them non-blocking
 	// this is to avoid deadlocks when one controller is waiting for the other
 	// to respond to a request
-	leftToRightRequest := make(chan Request)
-	rightToLeftRequest := make(chan Request)
-	leftToRightResponse := make(chan Response)
-	rightToLeftResponse := make(chan Response)
+	leftToRightRequest := make(chan Request, 10)
+	rightToLeftRequest := make(chan Request, 10)
+	leftToRightResponse := make(chan Response, 10)
+	rightToLeftResponse := make(chan Response, 10)
 	leftController.OutgoingRightRequest = leftToRightRequest
 	leftController.IncomingRightRequest = rightToLeftRequest
 	leftController.OutgoingRightResponse = leftToRightResponse
