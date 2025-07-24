@@ -199,17 +199,17 @@ func collectCartData(controller *Controller) SocketData {
 		Id: controller.Cart.Id,
 
 		// Chart data (planned trajectory values from MovementPlanner)
-		ChartPosition:     controller.MPCTrajectory.GetCurrentPosition(),
-		ChartVelocity:     controller.MPCTrajectory.GetCurrentVelocity(),
-		ChartAcceleration: controller.MPCTrajectory.GetCurrentAcceleration(),
-		ChartJerk:         controller.MPCTrajectory.GetCurrentJerk(),
+		ChartPosition:     controller.CurrentTrajectory.GetCurrentPosition(),
+		ChartVelocity:     controller.CurrentTrajectory.GetCurrentVelocity(),
+		ChartAcceleration: controller.CurrentTrajectory.GetCurrentAcceleration(),
+		ChartJerk:         controller.CurrentTrajectory.GetCurrentJerk(),
 
 		// Real-time data (actual cart physics values)
 		Position: controller.Cart.Position,
 
-		LeftBorder:  controller.LeftBound.GetCurrentPosition(),
-		RightBorder: controller.RightBound.GetCurrentPosition(),
-		Goal:        controller.Goal,
+		LeftBorder:  controller.LeftBorderTrajectory.GetCurrentPosition(),
+		RightBorder: controller.RightBorderTrajectory.GetCurrentPosition(),
+		Goal:        controller.CurrentTrajectory.end,
 		Setpoint:    controller.PositionPID.Setpoint,
 		State:       controller.State.String(),
 	}

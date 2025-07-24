@@ -126,11 +126,12 @@ func (mpc *MovementPlanner) CalculateTrajectory(start, end float64) Trajectory {
 	for i := 1; i < 8; i++ {
 		trajectory.state[i] = trajectory.calculateStateInPhase(i, t[i]-t[i-1])
 		// fix jerk
-		if i == 6 {
+		switch i {
+		case 6:
 			trajectory.state[i].j = jerk
-		} else if i == 2 || i == 4 {
+		case 2, 4:
 			trajectory.state[i].j = -jerk
-		} else {
+		default:
 			trajectory.state[i].j = 0
 		}
 	}
