@@ -71,8 +71,8 @@ type Controller struct {
 	OutgoingLeftResponse  chan Response
 	IncomingLeftResponse  chan Response
 
-	// Queued requests mapped by RequestId
-	QueuedRequests map[int64]RequestParameters
+	// Latest request
+	PendingRequest *RequestParameters
 }
 
 // NewController creates a new controller for a cart
@@ -94,7 +94,7 @@ func NewController(cart *Cart, leftBorder, rightBorder float64) *Controller {
 		CurrentTrajectory:     &currentTrajectory,
 		IncomingGoalRequest:   make(chan float64, 10), // Buffered to prevent blocking
 		State:                 Idle,
-		QueuedRequests:        make(map[int64]RequestParameters),
+		PendingRequest:        nil,
 	}
 }
 
@@ -154,16 +154,16 @@ func (c *Controller) run_controller() {
 					// No response, continue without blocking
 				}
 
-				// check if there are any requests to retry
-				for requestId, requestParams := range c.QueuedRequests {
-					if time.Now().After(requestParams.RetryTime) {
-						fmt.Println(c.Cart.Name, ": Retrying request with ID:", requestId)
+				// check if there is a request to retry
+				if c.PendingRequest != nil {
+					if time.Now().After(c.PendingRequest.RetryTime) {
+						fmt.Println(c.Cart.Name, ": Retrying request with ID:", c.PendingRequest.Request.RequestId)
 						// Retry the request
 						c.queueBorderMoveRequest(
-							requestParams.Goal,
-							requestParams.AcceptState,
+							c.PendingRequest.Goal,
+							c.PendingRequest.AcceptState,
+							&c.PendingRequest.Request.RequestId, // Pass the old request ID for retry
 						)
-						delete(c.QueuedRequests, requestId) // Remove the request after retrying
 					}
 				}
 			}
@@ -185,7 +185,7 @@ func (c *Controller) handleGoalRequest(goal float64, acceptState State) {
 	if c.LeftBorderTrajectory.end+c.safetyMargin < goal && goal < c.RightBorderTrajectory.end-c.safetyMargin {
 		c.acceptGoal(goal, acceptState)
 	} else {
-		c.queueBorderMoveRequest(goal, acceptState)
+		c.queueBorderMoveRequest(goal, acceptState, nil)
 	}
 }
 
@@ -206,7 +206,7 @@ func (c *Controller) postponeGoal(goal float64) {
 	fmt.Println(c.Cart.Name, ": Goal postponed:", goal)
 }
 
-func (c *Controller) queueBorderMoveRequest(goal float64, acceptState State) {
+func (c *Controller) queueBorderMoveRequest(goal float64, acceptState State, oldRequestId *int64) {
 	fmt.Println(c.Cart.Name, ": Goal out of bounds, queuing border move request:", goal)
 	c.State = Requesting
 
@@ -216,7 +216,12 @@ func (c *Controller) queueBorderMoveRequest(goal float64, acceptState State) {
 			// No neighbor, reject request
 			c.rejectGoal(goal)
 		} else {
-			requestId := time.Now().UnixNano() // Unique request ID based on current time
+			var requestId int64
+			if oldRequestId != nil {
+				requestId = *oldRequestId
+			} else {
+				requestId = time.Now().UnixNano() // Unique request ID based on current time
+			}
 			request := Request{RequestId: requestId, ProposedBorderStart: start, ProposedBorderEnd: end}
 			requestParameters := RequestParameters{
 				Goal:        goal,
@@ -224,7 +229,7 @@ func (c *Controller) queueBorderMoveRequest(goal float64, acceptState State) {
 				RetryTime:   time.Now().Add(100 * time.Millisecond),
 				AcceptState: acceptState, // State to transition to if the request is accepted
 			}
-			c.QueuedRequests[requestId] = requestParameters
+			c.PendingRequest = &requestParameters
 			// Send the request to the neighbor controller
 			outgoing <- request
 		}
@@ -249,20 +254,20 @@ func (c *Controller) queueBorderMoveRequest(goal float64, acceptState State) {
 }
 
 func (c *Controller) handleResponse(response Response, side Side) {
-	if _, exists := c.QueuedRequests[response.RequestId]; !exists {
-		fmt.Println(c.Cart.Name, ": Error: Received response for unknown request ID:", response.RequestId)
+	if c.PendingRequest == nil || c.PendingRequest.Request.RequestId != response.RequestId {
+		fmt.Println(c.Cart.Name, ": Received response for old request, ignoring.")
 		return
 	}
-	requestParams := c.QueuedRequests[response.RequestId]
-	delete(c.QueuedRequests, response.RequestId)
+	requestParams := c.PendingRequest
+	c.PendingRequest = nil // Clear the pending request after handling
 
 	switch response.Type {
 	case ACCEPT:
-		c.handleAcceptResponse(requestParams, side)
+		c.handleAcceptResponse(*requestParams, side)
 	case REJECT:
-		c.handleRejectResponse(requestParams, side)
+		c.handleRejectResponse(*requestParams, side)
 	case WAIT:
-		c.handleWaitResponse(requestParams, side)
+		c.handleWaitResponse(*requestParams, side)
 	default:
 		fmt.Println(c.Cart.Name, ": Unknown response received.")
 	}
@@ -298,7 +303,7 @@ func (c *Controller) handleRejectResponse(requestParams RequestParameters, side 
 func (c *Controller) handleWaitResponse(requestParams RequestParameters, side Side) {
 	fmt.Println(c.Cart.Name, ": Border move request waiting for response.")
 	requestParams.RetryTime = time.Now().Add(200 * time.Millisecond) // Retry after 1000ms
-	c.QueuedRequests[requestParams.Request.RequestId] = requestParams
+	c.PendingRequest = &requestParams
 	c.postponeGoal(requestParams.Goal)
 }
 

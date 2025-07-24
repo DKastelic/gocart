@@ -80,7 +80,8 @@ func (gm *GoalManager) generateGoalsForController(index int, channel chan<- floa
 		case <-stop:
 			return
 		default:
-			goal := rand.Float64()*1200 + 200 // Random goal between 200 and 1400
+			// goal := rand.Float64()*1200 + 200 // Random goal between 200 and 1400
+			goal := float64(index*400) - 200 + rand.Float64()*800 // Random goal between index*400-200 and (index+1)*400+200
 			channel <- goal
 			time.Sleep(time.Duration(rand.Intn(2000)) * time.Millisecond) // Random delay between 0 and 2 seconds
 			fmt.Printf("Generated random goal for controller %d: %.2f\n", index+1, goal)

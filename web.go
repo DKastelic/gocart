@@ -258,10 +258,10 @@ func startWebsocketServer(controllers []*Controller, controllerGoalChannels []ch
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		wsHandler(w, r, dataChannel, controllerGoalChannels, randomControlChannel)
 	})
-	http.HandleFunc("/api/historical-data", historicalDataHandler)
+	// http.HandleFunc("/api/historical-data", historicalDataHandler)
 
 	fmt.Println("WebSocket server started on :8080")
-	fmt.Println("Historical data API available at :8080/api/historical-data")
+	// fmt.Println("Historical data API available at :8080/api/historical-data")
 	err := http.ListenAndServe(":8080", nil)
 	if err != nil {
 		fmt.Println("Error starting server:", err)
