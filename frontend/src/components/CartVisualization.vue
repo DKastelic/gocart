@@ -36,8 +36,6 @@ const stateColors = {
   'Busy': '#9932CC',        // Purple
   'Requesting': '#FFA500',  // Orange
   'Moving': '#00FF00',      // Green
-  'Stopping': '#FFFF00',    // Yellow
-  'Stopped': '#FF6347',     // Tomato
   'Avoiding': '#FF0000'     // Red
 } as const;
 
@@ -144,8 +142,6 @@ function drawLegend() {
     { name: 'Busy', color: stateColors.Busy },
     { name: 'Requesting', color: stateColors.Requesting },
     { name: 'Moving', color: stateColors.Moving },
-    { name: 'Stopping', color: stateColors.Stopping },
-    { name: 'Stopped', color: stateColors.Stopped },
     { name: 'Avoiding', color: stateColors.Avoiding }
   ];
   

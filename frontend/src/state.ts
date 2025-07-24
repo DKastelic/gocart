@@ -17,7 +17,7 @@ export type SocketData = {
   rightBorder: number;
   goal: number;
   setpoint: number;
-  state: 'Idle' | 'Busy' | 'Requesting' | 'Moving' | 'Stopping' | 'Stopped' | 'Avoiding';
+  state: 'Idle' | 'Busy' | 'Requesting' | 'Moving' | 'Avoiding';
 };
 
 export type AllCartsData = {

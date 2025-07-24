@@ -12,6 +12,7 @@ const (
 	Moving
 	Requesting
 	Avoiding
+	Busy
 )
 
 func (s State) String() string {
@@ -24,6 +25,8 @@ func (s State) String() string {
 		return "Requesting"
 	case Avoiding:
 		return "Avoiding"
+	case Busy:
+		return "Busy"
 	default:
 		return "Unknown"
 	}
@@ -48,7 +51,8 @@ type Controller struct {
 	LeftBorderTrajectory  *Trajectory
 	RightBorderTrajectory *Trajectory
 	CurrentTrajectory     *Trajectory
-	State
+	State                 State     // Current state of the controller
+	BusyUntil             time.Time // Time until which the controller is busy
 
 	VelocityPID     *PID
 	PositionPID     *PID
@@ -121,7 +125,19 @@ func (c *Controller) run_controller() {
 
 			// state machine
 			switch c.State {
-			case Moving, Avoiding:
+			case Busy:
+				if time.Now().After(c.BusyUntil) {
+					fmt.Println(c.Cart.Name, ": Busy period ended, returning to idle state.")
+					c.State = Idle
+				}
+			case Moving:
+				// Check if the cart has reached the goal
+				if c.CurrentTrajectory.IsFinished() {
+					fmt.Println(c.Cart.Name, ": Goal reached!")
+					c.State = Busy
+					c.BusyUntil = time.Now().Add(1000 * time.Millisecond) // Simulate busy state for 1s
+				}
+			case Avoiding:
 				// Check if the cart has reached the goal
 				if c.CurrentTrajectory.IsFinished() {
 					fmt.Println(c.Cart.Name, ": Goal reached!")

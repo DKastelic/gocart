@@ -9,7 +9,7 @@ const props = defineProps({
 const leftBorder = ref(0);
 const rightBorder = ref(0);
 const goal = ref(0);
-const state = ref<'Idle' | 'Busy' | 'Requesting' | 'Moving' | 'Stopping' | 'Stopped' | 'Avoiding'>('Idle');
+const state = ref<'Idle' | 'Busy' | 'Requesting' | 'Moving' | 'Avoiding'>('Idle');
 const position = ref(0);
 
 const { onCartData, isConnected } = useWebSocket();
@@ -19,7 +19,7 @@ function updateData(data: SocketData) {
     leftBorder.value = data.leftBorder;
     rightBorder.value = data.rightBorder;
     goal.value = data.goal;
-    state.value = data.state as 'Idle' | 'Busy' | 'Requesting' | 'Moving' | 'Stopping' | 'Stopped' | 'Avoiding';
+    state.value = data.state as 'Idle' | 'Busy' | 'Requesting' | 'Moving' | 'Avoiding';
     position.value = data.position;
 }
 
