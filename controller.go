@@ -111,7 +111,11 @@ func (c *Controller) runPIDControllers() {
 
 func (c *Controller) handleGoalRequest(goal float64) {
 	fmt.Println(c.Cart.Name, ": received goal request:", goal)
-	c.acceptGoal(goal)
+	if c.LeftBorderTrajectory.end+c.safetyMargin < goal && goal < c.RightBorderTrajectory.end-c.safetyMargin {
+		c.acceptGoal(goal)
+	} else {
+		c.rejectGoal(goal)
+	}
 }
 
 func (c *Controller) acceptGoal(goal float64) {
@@ -120,4 +124,8 @@ func (c *Controller) acceptGoal(goal float64) {
 	trajectory := c.MovementPlanner.CalculateTrajectory(c.Cart.Position, goal)
 	c.CurrentTrajectory = &trajectory
 	c.State = Moving
+}
+
+func (c *Controller) rejectGoal(goal float64) {
+	fmt.Println(c.Cart.Name, ": Goal permanently rejected:", goal)
 }
