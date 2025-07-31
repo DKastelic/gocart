@@ -76,8 +76,8 @@ type Controller struct {
 	OutgoingLeftResponse  chan Response
 	IncomingLeftResponse  chan Response
 
-	// Latest request
-	PendingRequest *RequestParameters
+	// Pending requests indexed by request ID
+	PendingRequests map[int64]*RequestParameters
 }
 
 // NewController creates a new controller for a cart
@@ -93,13 +93,13 @@ func NewController(cart *Cart, leftBorder, rightBorder float64) *Controller {
 		VelocityPID:           NewPID(150, 0, 0, 0.01),
 		PositionPID:           NewPID(100, 0, 0, 0.01),
 		MovementPlanner:       movementPlanner,
-		safetyMargin:          50, // Example safety margin
+		safetyMargin:          30,
 		LeftBorderTrajectory:  &leftBorderTrajectory,
 		RightBorderTrajectory: &rightBorderTrajectory,
 		CurrentTrajectory:     &currentTrajectory,
 		IncomingGoalRequest:   make(chan float64, 10), // Buffered to prevent blocking
 		State:                 Idle,
-		PendingRequest:        nil,
+		PendingRequests:       make(map[int64]*RequestParameters),
 	}
 }
 
@@ -158,23 +158,31 @@ func (c *Controller) run_controller() {
 				default:
 					// No response, continue without blocking
 				}
-
-				// check if there is a request to retry
-				if c.PendingRequest != nil {
-					if time.Now().After(c.PendingRequest.RetryTime) {
-						fmt.Println(c.Cart.Name, ": Retrying request with ID:", c.PendingRequest.Request.RequestId)
-						// Retry the request
-						c.queueBorderMoveRequest(
-							c.PendingRequest.Goal,
-							c.PendingRequest.AcceptState,
-							&c.PendingRequest.Request.RequestId, // Pass the old request ID for retry
-							c.PendingRequest.OriginalRequest,
-							c.PendingRequest.OriginalUpdateTrajectory,
-							c.PendingRequest.OriginalOutgoingResponse,
-						)
-					}
-				}
+				// check if there are any requests to retry
+				c.retryPendingRequests()
+			case Idle:
+				// check if there are any requests to retry
+				c.retryPendingRequests()
 			}
+		}
+	}
+}
+
+func (c *Controller) retryPendingRequests() {
+	for requestId, pendingRequest := range c.PendingRequests {
+		if time.Now().After(pendingRequest.RetryTime) {
+			fmt.Println(c.Cart.Name, ": Retrying request with ID:", pendingRequest.Request.RequestId)
+			// Remove the old entry since queueBorderMoveRequest will add a new one
+			delete(c.PendingRequests, requestId)
+			// Retry the request
+			c.queueBorderMoveRequest(
+				pendingRequest.Goal,
+				pendingRequest.AcceptState,
+				&requestId, // Pass the old request ID for retry
+				pendingRequest.OriginalRequest,
+				pendingRequest.OriginalUpdateTrajectory,
+				pendingRequest.OriginalOutgoingResponse,
+			)
 		}
 	}
 }
@@ -248,7 +256,7 @@ func (c *Controller) queueBorderMoveRequest(goal float64, acceptState State, old
 				OriginalUpdateTrajectory: originalUpdateTrajectory,
 				OriginalOutgoingResponse: originalOutgoingResponse,
 			}
-			c.PendingRequest = &requestParameters
+			c.PendingRequests[requestId] = &requestParameters
 			// Send the request to the neighbor controller
 			outgoing <- request
 		}
@@ -273,12 +281,14 @@ func (c *Controller) queueBorderMoveRequest(goal float64, acceptState State, old
 }
 
 func (c *Controller) handleResponse(response Response, side Side) {
-	if c.PendingRequest == nil || c.PendingRequest.Request.RequestId != response.RequestId {
-		fmt.Println(c.Cart.Name, ": Received response for old request, ignoring.")
+	requestParams, exists := c.PendingRequests[response.RequestId]
+	if !exists {
+		fmt.Println(c.Cart.Name, ": Received response for unknown or old request, ignoring.")
 		return
 	}
-	requestParams := c.PendingRequest
-	c.PendingRequest = nil // Clear the pending request after handling
+
+	// Remove the request from pending requests after handling
+	delete(c.PendingRequests, response.RequestId)
 
 	switch response.Type {
 	case ACCEPT:
@@ -332,7 +342,7 @@ func (c *Controller) handleRejectResponse(requestParams RequestParameters, side 
 func (c *Controller) handleWaitResponse(requestParams RequestParameters, side Side) {
 	fmt.Println(c.Cart.Name, ": Border move request waiting for response.")
 	requestParams.RetryTime = time.Now().Add(1000 * time.Millisecond) // Retry after 1000ms
-	c.PendingRequest = &requestParams
+	c.PendingRequests[requestParams.Request.RequestId] = &requestParams
 	c.postponeGoal(requestParams.Goal)
 
 	// If this was triggered by an original request, postpone that request too
@@ -354,9 +364,9 @@ func (c *Controller) handleIncomingRequest(request Request, side Side) {
 			side,
 		)
 	} else {
-		shouldAccept := request.ProposedBorderEnd > c.CurrentTrajectory.end+c.safetyMargin
+		acceptImmediately := request.ProposedBorderEnd > c.CurrentTrajectory.end+c.safetyMargin
 		c.handleBorderMove(
-			shouldAccept,
+			acceptImmediately,
 			func(t *Trajectory) { c.RightBorderTrajectory = t },
 			c.OutgoingRightResponse,
 			request,
