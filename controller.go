@@ -110,7 +110,7 @@ func (c *Controller) run_controller() {
 	defer ticker.Stop()
 
 	// for loop using ticker
-	for {
+	for range ticker.C {
 		select {
 		case goal := <-c.IncomingGoalRequest:
 			if c.State == Idle {
@@ -124,46 +124,48 @@ func (c *Controller) run_controller() {
 		case request := <-c.IncomingLeftRequest:
 			c.handleIncomingRequest(request, Left)
 
-		case <-ticker.C:
-			// run PID controllers
-			c.runPIDControllers()
+		default:
+			// No incoming requests, continue with the loop
+		}
 
-			// state machine
-			switch c.State {
-			case Busy:
-				if time.Now().After(c.BusyUntil) {
-					fmt.Println(c.Cart.Name, ": Busy period ended, returning to idle state.")
-					c.State = Idle
-				}
-			case Moving:
-				// Check if the cart has reached the goal
-				if c.CurrentTrajectory.IsFinished() {
-					fmt.Println(c.Cart.Name, ": Goal reached!")
-					c.State = Busy
-					c.BusyUntil = time.Now().Add(1000 * time.Millisecond) // Simulate busy state for 1s
-				}
-			case Avoiding:
-				// Check if the cart has reached the goal
-				if c.CurrentTrajectory.IsFinished() {
-					fmt.Println(c.Cart.Name, ": Goal reached!")
-					c.State = Idle
-				}
-			case Requesting:
-				// check if there are any responses from neighbors
-				select {
-				case response := <-c.IncomingRightResponse:
-					c.handleResponse(response, Right)
-				case response := <-c.IncomingLeftResponse:
-					c.handleResponse(response, Left)
-				default:
-					// No response, continue without blocking
-				}
-				// check if there are any requests to retry
-				c.retryPendingRequests()
-			case Idle:
-				// check if there are any requests to retry
-				c.retryPendingRequests()
+		// run PID controllers
+		c.runPIDControllers()
+
+		// state machine
+		switch c.State {
+		case Busy:
+			if time.Now().After(c.BusyUntil) {
+				fmt.Println(c.Cart.Name, ": Busy period ended, returning to idle state.")
+				c.State = Idle
 			}
+		case Moving:
+			// Check if the cart has reached the goal
+			if c.CurrentTrajectory.IsFinished() {
+				fmt.Println(c.Cart.Name, ": Goal reached!")
+				c.State = Busy
+				c.BusyUntil = time.Now().Add(1000 * time.Millisecond) // Simulate busy state for 1s
+			}
+		case Avoiding:
+			// Check if the cart has reached the goal
+			if c.CurrentTrajectory.IsFinished() {
+				fmt.Println(c.Cart.Name, ": Goal reached!")
+				c.State = Idle
+			}
+		case Requesting:
+			// check if there are any responses from neighbors
+			select {
+			case response := <-c.IncomingRightResponse:
+				c.handleResponse(response, Right)
+			case response := <-c.IncomingLeftResponse:
+				c.handleResponse(response, Left)
+			default:
+				// No response, continue without blocking
+			}
+			// check if there are any requests to retry
+			c.retryPendingRequests()
+		case Idle:
+			// check if there are any requests to retry
+			c.retryPendingRequests()
 		}
 	}
 }
