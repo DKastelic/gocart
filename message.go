@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math/rand/v2"
 	"time"
 )
@@ -26,15 +27,17 @@ type Request struct {
 
 // NetworkDelaySimulator simulates network delays for requests and responses
 type NetworkDelaySimulator struct {
-	minDelay time.Duration
-	maxDelay time.Duration
+	minDelay        time.Duration
+	maxDelay        time.Duration
+	lossProbability float64 // Probability of packet loss (0.0 to 1.0)
 }
 
 // NewNetworkDelaySimulator creates a new network intermediary with specified delay range
-func NewNetworkDelaySimulator(minDelay, maxDelay time.Duration) *NetworkDelaySimulator {
+func NewNetworkDelaySimulator(minDelay, maxDelay time.Duration, lossProbability float64) *NetworkDelaySimulator {
 	return &NetworkDelaySimulator{
-		minDelay: minDelay,
-		maxDelay: maxDelay,
+		minDelay:        minDelay,
+		maxDelay:        maxDelay,
+		lossProbability: lossProbability,
 	}
 }
 
@@ -53,13 +56,21 @@ func (n *NetworkDelaySimulator) relayRequests(input <-chan Request, output chan<
 	go func() {
 		for request := range input {
 			delay := n.getRandomDelay()
+			lossProbability := n.lossProbability
 			go func(req Request, d time.Duration) {
 				time.Sleep(d)
+
+				// Simulate packet loss by randomly dropping requests
+				if rand.Float64() < lossProbability {
+					fmt.Print("Request dropped due to simulated packet loss\n")
+					return
+				}
+
 				select {
 				case output <- req:
 					// Successfully forwarded
 				default:
-					// Output channel full, drop the request (simulates packet loss)
+					// Output channel full, drop the request
 				}
 			}(request, delay)
 		}
@@ -71,13 +82,21 @@ func (n *NetworkDelaySimulator) relayResponses(input <-chan Response, output cha
 	go func() {
 		for response := range input {
 			delay := n.getRandomDelay()
+			lossProbability := n.lossProbability
 			go func(resp Response, d time.Duration) {
 				time.Sleep(d)
+
+				// Simulate packet loss by randomly dropping responses
+				if rand.Float64() < lossProbability {
+					fmt.Print("Response dropped due to simulated packet loss\n")
+					return
+				}
+
 				select {
 				case output <- resp:
 					// Successfully forwarded
 				default:
-					// Output channel full, drop the response (simulates packet loss)
+					// Output channel full, drop the response
 				}
 			}(response, delay)
 		}
@@ -86,7 +105,7 @@ func (n *NetworkDelaySimulator) relayResponses(input <-chan Response, output cha
 
 func connectControllers(leftController, rightController *Controller) {
 	// Create network intermediaries with 10-50ms delay range
-	networkSim := NewNetworkDelaySimulator(10*time.Millisecond, 50*time.Millisecond)
+	networkSim := NewNetworkDelaySimulator(10*time.Millisecond, 50*time.Millisecond, 0.1)
 
 	// Create intermediate channels for the network simulation
 	leftToRightRequestIntermediate := make(chan Request, 10)
