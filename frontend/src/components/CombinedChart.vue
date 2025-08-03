@@ -60,7 +60,8 @@ const chartOptions = ref({
       }
     },
     axisLabel: {
-      color: '#ccc'
+      color: '#ccc',
+      hideOverlap: true, // Hide overlapping labels
     },
     splitLine: {
       lineStyle: {
