@@ -1,5 +1,11 @@
 <template>
-  <div class="combined-chart">
+  <div 
+    class="combined-chart"
+    :style="{ 
+      backgroundColor: currentThemeConfig.chartBackground,
+      borderColor: currentThemeConfig.chartBorder
+    }"
+  >
     <v-chart :option="chartOptions" />
   </div>
 </template>
@@ -12,8 +18,11 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
 import { TooltipComponent, TitleComponent, GridComponent, LegendComponent } from 'echarts/components'
 import type { SocketData, AllCartsData } from '../state'
+import { useTheme } from '../composables/useTheme'
 
 use([CanvasRenderer, LineChart, TooltipComponent, TitleComponent, GridComponent, LegendComponent])
+
+const { currentThemeConfig } = useTheme()
 
 const props = defineProps<{
   title: string
@@ -27,11 +36,11 @@ const props = defineProps<{
 const cartColors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4']
 
 const chartOptions = ref({
-  backgroundColor: '#2a2a2a',
+  backgroundColor: '',
   title: {
     text: props.title,
     textStyle: {
-      color: '#fff'
+      color: ''
     }
   },
   tooltip: {
@@ -39,33 +48,33 @@ const chartOptions = ref({
     axisPointer: {
       animation: false,
     },
-    backgroundColor: '#444',
-    borderColor: '#666',
+    backgroundColor: '',
+    borderColor: '',
     textStyle: {
-      color: '#fff'
+      color: ''
     }
   },
   legend: {
     data: [] as string[],
     top: 30,
     textStyle: {
-      color: '#ccc'
+      color: ''
     }
   },
   xAxis: {
     type: 'time',
     axisLine: {
       lineStyle: {
-        color: '#666'
+        color: ''
       }
     },
     axisLabel: {
-      color: '#ccc',
+      color: '',
       hideOverlap: true, // Hide overlapping labels
     },
     splitLine: {
       lineStyle: {
-        color: '#444'
+        color: ''
       }
     }
   },
@@ -77,21 +86,43 @@ const chartOptions = ref({
     },
     axisLine: {
       lineStyle: {
-        color: '#666'
+        color: ''
       }
     },
     axisLabel: {
-      color: '#ccc'
+      color: ''
     },
     splitLine: {
       lineStyle: {
-        color: '#444'
+        color: ''
       }
     }
   },
   series: [] as any[],
   animation: false,
 })
+
+// Function to update chart colors based on current theme
+function updateChartColors() {
+  const config = currentThemeConfig.value
+  chartOptions.value.backgroundColor = config.chartBackground
+  chartOptions.value.title.textStyle.color = config.chartTitleColor
+  chartOptions.value.tooltip.backgroundColor = config.chartTooltipBackground
+  chartOptions.value.tooltip.borderColor = config.chartTooltipBorder
+  chartOptions.value.tooltip.textStyle.color = config.chartTooltipColor
+  chartOptions.value.legend.textStyle.color = config.chartLegendColor
+  chartOptions.value.xAxis.axisLine.lineStyle.color = config.chartAxisColor
+  chartOptions.value.xAxis.axisLabel.color = config.chartAxisLabelColor
+  chartOptions.value.xAxis.splitLine.lineStyle.color = config.chartSplitLineColor
+  chartOptions.value.yAxis.axisLine.lineStyle.color = config.chartAxisColor
+  chartOptions.value.yAxis.axisLabel.color = config.chartAxisLabelColor
+  chartOptions.value.yAxis.splitLine.lineStyle.color = config.chartSplitLineColor
+}
+
+// Watch for theme changes and update colors
+watch(currentThemeConfig, () => {
+  updateChartColors()
+}, { immediate: true })
 
 // Initialize series for each cart
 function initializeSeries() {
@@ -215,14 +246,14 @@ watch(() => props.data, (newData) => {
 .combined-chart {
   width: 100%;
   height: 300px;
-  background: #2a2a2a;
-  border: 1px solid #444;
+  border: 1px solid;
   padding: 10px;
   margin-bottom: 10px;
+  transition: all 0.2s ease;
 }
 
 .combined-chart:hover {
-  border-color: #555;
+  opacity: 0.9;
 }
 
 @media (max-width: 1400px) {

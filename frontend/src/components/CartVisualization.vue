@@ -1,10 +1,17 @@
 <template>
-  <div class="cart-visualization">
+  <div 
+    class="cart-visualization"
+    :style="{ backgroundColor: currentThemeConfig.canvasBackground }"
+  >
     <canvas 
       ref="canvas" 
       :width="SCREEN_WIDTH" 
       :height="SCREEN_HEIGHT"
       class="cart-canvas"
+      :style="{ 
+        backgroundColor: currentThemeConfig.canvasBackground,
+        borderColor: currentThemeConfig.canvasBorder
+      }"
     />
   </div>
 </template>
@@ -12,11 +19,13 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { useWebSocket, type SocketData } from '../state';
+import { useTheme } from '../composables/useTheme';
 
 const SCREEN_WIDTH = 1600;
 const SCREEN_HEIGHT = 900;
 
 const canvas = ref<HTMLCanvasElement | null>(null);
+const { currentThemeConfig } = useTheme();
 let ctx: CanvasRenderingContext2D | null = null;
 let animationId: number | null = null;
 
@@ -47,7 +56,7 @@ const handleCartData = (data: SocketData) => {
 // Drawing functions
 function clearCanvas() {
   if (!ctx) return;
-  ctx.fillStyle = '#1a1a1a'; // Dark background
+  ctx.fillStyle = currentThemeConfig.value.canvasBackground;
   ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 }
 
@@ -64,7 +73,7 @@ function drawCart(cartData: SocketData) {
   ctx.fillRect(x, y, CART_WIDTH, CART_HEIGHT);
   
   // Draw cart ID on top
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = currentThemeConfig.value.canvasTextColor;
   ctx.font = '12px Arial';
   ctx.textAlign = 'center';
   ctx.fillText(cartData.id.toString(), cartData.position, y - 5);
@@ -90,7 +99,7 @@ function drawSetpoint(cartData: SocketData) {
   const x = cartData.setpoint;
   const y = SCREEN_HEIGHT / 2 + CART_HEIGHT / 4;
   
-  ctx.fillStyle = '#ffffff'; // White
+  ctx.fillStyle = currentThemeConfig.value.setpointColor;
   ctx.beginPath();
   ctx.arc(x, y, setpointRadius, 0, 2 * Math.PI);
   ctx.fill();
@@ -133,7 +142,7 @@ function drawLegend() {
   ctx.textAlign = 'left';
   
   // Title
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = currentThemeConfig.value.canvasLegendColor;
   ctx.fillText('Cart States:', legendX, legendY);
   
   // Legend items
@@ -157,18 +166,18 @@ function drawLegend() {
     ctx.fill();
     
     // Text
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = currentThemeConfig.value.canvasLegendColor;
     ctx.fillText(state.name, legendX + 20, y);
   });
   
   // Add indicators section
   const indicatorsY = legendY + 20 + (states.length * legendItemHeight) + 20;
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = currentThemeConfig.value.canvasLegendColor;
   ctx.fillText('Indicators:', legendX, indicatorsY);
   
   const indicators = [
     { name: 'Goal', color: '#FF0000' },
-    { name: 'Setpoint', color: '#ffffff' },
+    { name: 'Setpoint', color: currentThemeConfig.value.setpointColor },
     { name: 'Bounds', color: '#00FF00' }
   ];
   
@@ -184,7 +193,7 @@ function drawLegend() {
     ctx.fill();
     
     // Text
-    ctx.fillStyle = '#ffffff';
+    ctx.fillStyle = currentThemeConfig.value.canvasLegendColor;
     ctx.fillText(indicator.name, legendX + 20, y);
   });
 }
@@ -232,12 +241,10 @@ onUnmounted(() => {
   align-items: center;
   padding: 20px;
   flex-direction: column;
-  background-color: #1a1a1a;
 }
 
 .cart-canvas {
-  border: 2px solid #555;
-  background-color: #1a1a1a;
+  border: 2px solid;
   max-width: 100%;
   height: auto;
 }
@@ -254,5 +261,29 @@ onUnmounted(() => {
     width: 95vw;
     height: auto;
   }
+}
+
+/* Theme-aware scrollbar styling */
+.cart-visualization ::-webkit-scrollbar {
+  width: 12px;
+}
+
+.cart-visualization ::-webkit-scrollbar-track {
+  background: v-bind('currentThemeConfig.scrollbarTrack');
+}
+
+.cart-visualization ::-webkit-scrollbar-thumb {
+  background: v-bind('currentThemeConfig.scrollbarThumb');
+  border-radius: 6px;
+}
+
+.cart-visualization ::-webkit-scrollbar-thumb:hover {
+  background: v-bind('currentThemeConfig.scrollbarThumbHover');
+}
+
+/* Firefox scrollbar styling */
+.cart-visualization {
+  scrollbar-width: thin;
+  scrollbar-color: v-bind('currentThemeConfig.scrollbarThumb') v-bind('currentThemeConfig.scrollbarTrack');
 }
 </style>

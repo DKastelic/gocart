@@ -1,23 +1,63 @@
 <template>
-  <div class="control-panel">
-    <h3 class="panel-title">Simulation Controls</h3>
+  <div 
+    class="control-panel"
+    :style="{ 
+      backgroundColor: currentThemeConfig.panelBackground,
+      color: currentThemeConfig.panelColor
+    }"
+  >
+    <h3 
+      class="panel-title"
+      :style="{ 
+        color: currentThemeConfig.panelTitleColor,
+        borderBottomColor: currentThemeConfig.panelTitleBorder
+      }"
+    >
+      Simulation Controls
+    </h3>
     
     <!-- Cart Goal Controls -->
-    <div class="control-section">
-      <h4 class="section-title">Cart Goals</h4>
+    <div 
+      class="control-section"
+      :style="{ 
+        backgroundColor: currentThemeConfig.sectionBackground,
+        borderColor: currentThemeConfig.sectionBorder
+      }"
+    >
+      <h4 
+        class="section-title"
+        :style="{ color: currentThemeConfig.sectionTitleColor }"
+      >
+        Cart Goals
+      </h4>
       <div v-for="(cart, index) in carts" :key="index" class="cart-control">
-        <label class="cart-label">Cart {{ index + 1 }}:</label>
+        <label 
+          class="cart-label"
+          :style="{ color: currentThemeConfig.labelColor }"
+        >
+          Cart {{ index + 1 }}:
+        </label>
         <input 
           type="number" 
           v-model="cart.goal" 
           :placeholder="`Goal for cart ${index + 1}`"
           step="10"
           class="goal-input"
+          :style="{ 
+            backgroundColor: currentThemeConfig.inputBackground,
+            borderColor: currentThemeConfig.inputBorder,
+            color: currentThemeConfig.inputColor
+          }"
         />
         <button 
           @click="setGoal(index, cart.goal)" 
           class="set-button"
           :disabled="!cart.goal"
+          :style="{ 
+            backgroundColor: !cart.goal ? currentThemeConfig.buttonDisabledBackground : currentThemeConfig.buttonBackground,
+            borderColor: currentThemeConfig.buttonBorder,
+            color: !cart.goal ? currentThemeConfig.buttonDisabledColor : currentThemeConfig.buttonColor
+          }"
         >
           Set Goal
         </button>
@@ -25,8 +65,19 @@
     </div>
 
     <!-- Random Goals Control -->
-    <div class="control-section">
-      <h4 class="section-title">Random Goals</h4>
+    <div 
+      class="control-section"
+      :style="{ 
+        backgroundColor: currentThemeConfig.sectionBackground,
+        borderColor: currentThemeConfig.sectionBorder
+      }"
+    >
+      <h4 
+        class="section-title"
+        :style="{ color: currentThemeConfig.sectionTitleColor }"
+      >
+        Random Goals
+      </h4>
       <div class="random-control">
         <label class="checkbox-label">
           <input 
@@ -35,22 +86,60 @@
             @change="toggleRandomGoals"
             class="checkbox-input"
           />
-          <span class="checkbox-text">Enable Random Goal Generation</span>
+          <span 
+            class="checkbox-text"
+            :style="{ color: currentThemeConfig.checkboxTextColor }"
+          >
+            Enable Random Goal Generation
+          </span>
         </label>
       </div>
     </div>
 
     <!-- Status -->
-    <div class="control-section">
-      <h4 class="section-title">Status</h4>
-      <div class="status-item">
-        <span class="status-label">Connection:</span>
+    <div 
+      class="control-section"
+      :style="{ 
+        backgroundColor: currentThemeConfig.sectionBackground,
+        borderColor: currentThemeConfig.sectionBorder
+      }"
+    >
+      <h4 
+        class="section-title"
+        :style="{ color: currentThemeConfig.sectionTitleColor }"
+      >
+        Status
+      </h4>
+      <div 
+        class="status-item"
+        :style="{ 
+          backgroundColor: currentThemeConfig.statusItemBackground,
+          borderColor: currentThemeConfig.statusItemBorder
+        }"
+      >
+        <span 
+          class="status-label"
+          :style="{ color: currentThemeConfig.statusLabelColor }"
+        >
+          Connection:
+        </span>
         <span :class="['status-value', isConnected ? 'connected' : 'disconnected']">
           {{ isConnected ? 'connected' : 'disconnected' }}
         </span>
       </div>
-      <div class="status-item">
-        <span class="status-label">Random Goals:</span>
+      <div 
+        class="status-item"
+        :style="{ 
+          backgroundColor: currentThemeConfig.statusItemBackground,
+          borderColor: currentThemeConfig.statusItemBorder
+        }"
+      >
+        <span 
+          class="status-label"
+          :style="{ color: currentThemeConfig.statusLabelColor }"
+        >
+          Random Goals:
+        </span>
         <span :class="['status-value', randomGoalsEnabled ? 'enabled' : 'disabled']">
           {{ randomGoalsEnabled ? 'Enabled' : 'Disabled' }}
         </span>
@@ -62,10 +151,13 @@
 <script setup lang="ts">
 import { ref, reactive } from 'vue';
 import { useWebSocket } from '@/state';
+import { useTheme } from '@/composables/useTheme';
 
 interface Cart {
   goal: number | null;
 }
+
+const { currentThemeConfig } = useTheme();
 
 const carts = reactive<Cart[]>([
   { goal: null },
@@ -93,10 +185,8 @@ function toggleRandomGoals() {
 
 <style scoped>
 .control-panel {
-  background: #222;
   border: none;
   padding: 15px;
-  color: #e0e0e0;
   font-family: Arial, sans-serif;
   margin: 0;
   height: 100%;
@@ -104,8 +194,7 @@ function toggleRandomGoals() {
 
 .panel-title {
   margin: 0 0 15px 0;
-  color: #fff;
-  border-bottom: 1px solid #444;
+  border-bottom: 1px solid;
   padding-bottom: 8px;
   font-size: 16px;
 }
@@ -113,13 +202,11 @@ function toggleRandomGoals() {
 .control-section {
   margin-bottom: 15px;
   padding: 10px;
-  background: #2a2a2a;
-  border: 1px solid #444;
+  border: 1px solid;
 }
 
 .section-title {
   margin: 0 0 10px 0;
-  color: #fff;
   font-size: 14px;
 }
 
@@ -133,15 +220,12 @@ function toggleRandomGoals() {
 
 .cart-label {
   min-width: 50px;
-  color: #ccc;
   font-size: 13px;
 }
 
 .goal-input {
-  background: #333;
-  border: 1px solid #555;
+  border: 1px solid;
   padding: 4px 6px;
-  color: #fff;
   font-size: 13px;
   width: 80px;
 }
@@ -153,25 +237,22 @@ function toggleRandomGoals() {
 }
 
 .goal-input:focus {
-  outline: 1px solid #666;
+  outline: 1px solid #80bdff;
 }
 
 .set-button {
-  background: #444;
-  border: 1px solid #555;
-  color: #fff;
+  border: 1px solid;
   padding: 4px 8px;
   cursor: pointer;
   font-size: 12px;
+  transition: opacity 0.2s ease;
 }
 
 .set-button:hover:not(:disabled) {
-  background: #555;
+  opacity: 0.8;
 }
 
 .set-button:disabled {
-  background: #333;
-  color: #888;
   cursor: not-allowed;
 }
 
@@ -193,13 +274,11 @@ function toggleRandomGoals() {
 }
 
 .checkbox-text {
-  color: #fff;
   font-size: 13px;
 }
 
 .random-description {
   margin: 0;
-  color: #aaa;
   font-size: 11px;
 }
 
@@ -209,12 +288,10 @@ function toggleRandomGoals() {
   align-items: center;
   padding: 5px;
   margin-bottom: 5px;
-  background: #333;
-  border: 1px solid #444;
+  border: 1px solid;
 }
 
 .status-label {
-  color: #ccc;
   font-size: 12px;
 }
 
@@ -237,5 +314,29 @@ function toggleRandomGoals() {
 
 .status-value.disabled {
   color: #FFB366;
+}
+
+/* Theme-aware scrollbar styling for control panel */
+.control-panel ::-webkit-scrollbar {
+  width: 8px;
+}
+
+.control-panel ::-webkit-scrollbar-track {
+  background: v-bind('currentThemeConfig.scrollbarTrack');
+}
+
+.control-panel ::-webkit-scrollbar-thumb {
+  background: v-bind('currentThemeConfig.scrollbarThumb');
+  border-radius: 4px;
+}
+
+.control-panel ::-webkit-scrollbar-thumb:hover {
+  background: v-bind('currentThemeConfig.scrollbarThumbHover');
+}
+
+/* Firefox scrollbar styling */
+.control-panel {
+  scrollbar-width: thin;
+  scrollbar-color: v-bind('currentThemeConfig.scrollbarThumb') v-bind('currentThemeConfig.scrollbarTrack');
 }
 </style>

@@ -1,10 +1,24 @@
 <template>
-    <div class="charts-container">
+    <div 
+        class="charts-container"
+        :style="{ backgroundColor: currentThemeConfig.chartsBackground }"
+    >
         <div class="content-layout">
-            <div class="cart-controls">
-                <h3>Cart Visibility</h3>
+            <div 
+                class="cart-controls"
+                :style="{ 
+                    backgroundColor: currentThemeConfig.chartControlBackground,
+                    borderColor: currentThemeConfig.chartControlBorder
+                }"
+            >
+                <h3 :style="{ color: currentThemeConfig.chartControlTitleColor }">Cart Visibility</h3>
                 <div class="cart-checkboxes">
-                    <label v-for="cartId in numColumns" :key="cartId" class="cart-checkbox">
+                    <label 
+                        v-for="cartId in numColumns" 
+                        :key="cartId" 
+                        class="cart-checkbox"
+                        :style="{ color: currentThemeConfig.chartControlTextColor }"
+                    >
                         <input 
                             type="checkbox" 
                             v-model="cartVisibility[cartId]"
@@ -33,6 +47,9 @@
 import { ref, reactive, watch } from 'vue';
 import CombinedChart from './CombinedChart.vue';
 import { useWebSocket, type SocketData, type AllCartsData } from '@/state';
+import { useTheme } from '@/composables/useTheme';
+
+const { currentThemeConfig } = useTheme();
 
 const numColumns = ref(2);
 const chartTypes = ['chartPosition', 'chartVelocity', 'chartAcceleration', 'chartJerk'] as const;
@@ -101,7 +118,6 @@ function getChartTitle(type: typeof chartTypes[number]): string {
 .charts-container {
   width: 100%;
   padding: 0;
-  background-color: #222;
   height: 100%;
   overflow: hidden;
 }
@@ -115,8 +131,7 @@ function getChartTitle(type: typeof chartTypes[number]): string {
 }
 
 .cart-controls {
-  background: #2a2a2a;
-  border: 1px solid #444;
+  border: 1px solid;
   padding: 10px;
   width: 150px;
   flex-shrink: 0;
@@ -125,7 +140,6 @@ function getChartTitle(type: typeof chartTypes[number]): string {
 
 .cart-controls h3 {
   margin: 0 0 8px 0;
-  color: #fff;
   font-size: 14px;
 }
 
@@ -141,12 +155,12 @@ function getChartTitle(type: typeof chartTypes[number]): string {
   gap: 6px;
   cursor: pointer;
   font-size: 12px;
-  color: #ccc;
   padding: 3px;
+  transition: all 0.2s ease;
 }
 
 .cart-checkbox:hover {
-  background: #333;
+  opacity: 0.8;
 }
 
 .cart-checkbox input[type="checkbox"] {

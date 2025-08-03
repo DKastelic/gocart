@@ -3,8 +3,10 @@ import { ref } from 'vue';
 import WebsocketCharts from './components/WebsocketCharts.vue';
 import CartVisualization from './components/CartVisualization.vue';
 import ControlPanel from './components/ControlPanel.vue';
+import { useTheme } from './composables/useTheme';
 
 const activeTab = ref<'visualization' | 'charts'>('visualization');
+const { theme, toggleTheme, currentThemeConfig } = useTheme();
 
 function setActiveTab(tab: 'visualization' | 'charts') {
   activeTab.value = tab;
@@ -12,10 +14,32 @@ function setActiveTab(tab: 'visualization' | 'charts') {
 </script>
 
 <template>
-  <div class="app-container">
+  <div class="app-container" :style="{ 
+    backgroundColor: currentThemeConfig.appBackground, 
+    color: currentThemeConfig.appColor 
+  }">
     <!-- Header -->
-    <header class="app-header">
-      <h1 class="app-title">Dashboard</h1>
+    <header class="app-header" :style="{ 
+      backgroundColor: currentThemeConfig.headerBackground, 
+      borderBottomColor: currentThemeConfig.headerBorder 
+    }">
+      <div class="header-content">
+        <h1 class="app-title" :style="{ color: currentThemeConfig.titleColor }">Dashboard</h1>
+        
+        <!-- Theme Toggle Button -->
+        <button 
+          @click="toggleTheme" 
+          class="theme-toggle"
+          :style="{ 
+            backgroundColor: currentThemeConfig.buttonBackground,
+            borderColor: currentThemeConfig.buttonBorder,
+            color: currentThemeConfig.buttonColor
+          }"
+          :title="`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`"
+        >
+          {{ theme === 'light' ? 'dark theme' : 'light theme' }}
+        </button>
+      </div>
       
       <!-- Tab Navigation -->
       <nav class="tab-navigation">
@@ -23,6 +47,11 @@ function setActiveTab(tab: 'visualization' | 'charts') {
           class="tab-button" 
           :class="{ active: activeTab === 'visualization' }"
           @click="setActiveTab('visualization')"
+          :style="{ 
+            backgroundColor: activeTab === 'visualization' ? currentThemeConfig.tabActiveBackground : currentThemeConfig.tabBackground,
+            borderColor: currentThemeConfig.tabBorder,
+            color: activeTab === 'visualization' ? currentThemeConfig.tabActiveColor : currentThemeConfig.tabColor
+          }"
         >
           Visualization
         </button>
@@ -30,6 +59,11 @@ function setActiveTab(tab: 'visualization' | 'charts') {
           class="tab-button" 
           :class="{ active: activeTab === 'charts' }"
           @click="setActiveTab('charts')"
+          :style="{ 
+            backgroundColor: activeTab === 'charts' ? currentThemeConfig.tabActiveBackground : currentThemeConfig.tabBackground,
+            borderColor: currentThemeConfig.tabBorder,
+            color: activeTab === 'charts' ? currentThemeConfig.tabActiveColor : currentThemeConfig.tabColor
+          }"
         >
           Charts
         </button>
@@ -42,18 +76,38 @@ function setActiveTab(tab: 'visualization' | 'charts') {
         <!-- Content Area -->
         <div class="content-area">
           <!-- Cart Visualization Tab -->
-          <section v-if="activeTab === 'visualization'" class="content-section">
+          <section 
+            v-if="activeTab === 'visualization'" 
+            class="content-section"
+            :style="{ 
+              backgroundColor: currentThemeConfig.contentBackground, 
+              borderColor: currentThemeConfig.contentBorder 
+            }"
+          >
             <CartVisualization />
           </section>
 
           <!-- Charts Tab -->
-          <section v-if="activeTab === 'charts'" class="content-section">
+          <section 
+            v-if="activeTab === 'charts'" 
+            class="content-section"
+            :style="{ 
+              backgroundColor: currentThemeConfig.contentBackground, 
+              borderColor: currentThemeConfig.contentBorder 
+            }"
+          >
             <WebsocketCharts />
           </section>
         </div>
 
         <!-- Control Panel Sidebar -->
-        <div class="sidebar">
+        <div 
+          class="sidebar"
+          :style="{ 
+            backgroundColor: currentThemeConfig.sidebarBackground, 
+            borderLeftColor: currentThemeConfig.sidebarBorder 
+          }"
+        >
           <ControlPanel />
         </div>
       </div>
@@ -65,8 +119,6 @@ function setActiveTab(tab: 'visualization' | 'charts') {
 .app-container {
   height: 100vh;
   width: 100vw;
-  background: #222;
-  color: #e0e0e0;
   margin: 0;
   padding: 0;
   font-family: Arial, sans-serif;
@@ -76,16 +128,35 @@ function setActiveTab(tab: 'visualization' | 'charts') {
 }
 
 .app-header {
-  background: #2a2a2a;
   padding: 15px;
-  border-bottom: 1px solid #444;
+  border-bottom: 1px solid;
   flex-shrink: 0;
 }
+
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
 .app-title {
   font-size: 18px;
-  margin: 0 0 10px 0;
-  color: #fff;
+  margin: 0;
   text-align: center;
+  flex: 1;
+}
+
+.theme-toggle {
+  padding: 6px 12px;
+  border: 1px solid;
+  cursor: pointer;
+  min-width: 40px;
+}
+
+.theme-toggle:hover {
+  opacity: 0.8;
+  transform: scale(1.05);
 }
 
 .tab-navigation {
@@ -96,20 +167,14 @@ function setActiveTab(tab: 'visualization' | 'charts') {
 
 .tab-button {
   padding: 6px 12px;
-  border: 1px solid #444;
-  background: #333;
+  border: 1px solid;
   font-size: 13px;
   cursor: pointer;
-  color: #ccc;
+  transition: all 0.2s ease;
 }
 
 .tab-button:hover {
-  background: #444;
-}
-
-.tab-button.active {
-  background: #555;
-  color: #fff;
+  opacity: 0.8;
 }
 
 .app-main {
@@ -131,15 +196,13 @@ function setActiveTab(tab: 'visualization' | 'charts') {
 
 .sidebar {
   width: 300px;
-  background: #222;
-  border-left: 1px solid #444;
+  border-left: 1px solid;
   overflow-y: auto;
   flex-shrink: 0;
 }
 
 .content-section {
-  background: #222;
-  border: 1px solid #444;
+  border: 1px solid;
   height: 100%;
   overflow: auto;
 }
@@ -199,6 +262,30 @@ function setActiveTab(tab: 'visualization' | 'charts') {
     font-size: 12px;
     width: 150px;
   }
+}
+
+/* Global theme-aware scrollbar styling */
+* ::-webkit-scrollbar {
+  width: 12px;
+}
+
+* ::-webkit-scrollbar-track {
+  background: v-bind('currentThemeConfig.scrollbarTrack');
+}
+
+* ::-webkit-scrollbar-thumb {
+  background: v-bind('currentThemeConfig.scrollbarThumb');
+  border-radius: 6px;
+}
+
+* ::-webkit-scrollbar-thumb:hover {
+  background: v-bind('currentThemeConfig.scrollbarThumbHover');
+}
+
+/* Firefox scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: v-bind('currentThemeConfig.scrollbarThumb') v-bind('currentThemeConfig.scrollbarTrack');
 }
 </style>
 
