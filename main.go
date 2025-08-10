@@ -43,7 +43,7 @@ func main() {
 	defer close(exit_channel)
 
 	// Start the physics and drawing loops
-	go physics_loop(carts)
+	go physics_loop(carts, exit_channel)
 	// go draw_loop(controllers, exit_channel)
 	// Create a channel for random goal control from the frontend
 	randomControlChannel := make(chan ControlMessage, 10)
@@ -60,7 +60,7 @@ func main() {
 	}
 
 	// Initialize the WebSocket server with controllers
-	startWebsocketServer(controllers, controllerGoalChannels, randomControlChannel)
+	go startWebsocketServer(controllers, controllerGoalChannels, randomControlChannel)
 
 	// wait for the exit signal
 	<-exit_channel
