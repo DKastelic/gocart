@@ -47,6 +47,7 @@ type RequestParameters struct {
 
 	// For forwarding responses from border expansion requests
 	OriginalRequest          *Request          // The original request that triggered this border expansion
+	OriginalTrajectory       *Trajectory       // The original trajectory to update
 	OriginalUpdateTrajectory func(*Trajectory) // Function to update trajectory for original request
 	OriginalOutgoingResponse chan Response     // Channel to send response for original request
 }
@@ -84,9 +85,9 @@ type Controller struct {
 func NewController(cart *Cart, leftBorder, rightBorder float64) *Controller {
 	// Initialize trajectories
 	movementPlanner := NewMovementPlanner(200, 100, 300)
-	leftBorderTrajectory := movementPlanner.CalculateTrajectory(leftBorder, leftBorder)
-	rightBorderTrajectory := movementPlanner.CalculateTrajectory(rightBorder, rightBorder)
-	currentTrajectory := movementPlanner.CalculateTrajectory(cart.Position, cart.Position)
+	leftBorderTrajectory := movementPlanner.GetStationaryTrajectory(leftBorder)
+	rightBorderTrajectory := movementPlanner.GetStationaryTrajectory(rightBorder)
+	currentTrajectory := movementPlanner.GetStationaryTrajectory(cart.Position)
 
 	return &Controller{
 		Cart:                  cart,
@@ -183,6 +184,7 @@ func (c *Controller) retryPendingRequests() {
 				&requestId, // Pass the old request ID for retry
 				pendingRequest.OriginalRequest,
 				pendingRequest.OriginalUpdateTrajectory,
+				pendingRequest.OriginalTrajectory,
 				pendingRequest.OriginalOutgoingResponse,
 			)
 		}
@@ -198,16 +200,16 @@ func (c *Controller) runPIDControllers() {
 }
 
 func (c *Controller) handleGoalRequest(goal float64, acceptState State) {
-	c.handleGoalRequestWithOriginal(goal, acceptState, nil, nil, nil)
+	c.handleGoalRequestWithOriginal(goal, acceptState, nil, nil, nil, nil)
 }
 
-func (c *Controller) handleGoalRequestWithOriginal(goal float64, acceptState State, originalRequest *Request, originalUpdateTrajectory func(*Trajectory), originalOutgoingResponse chan Response) {
+func (c *Controller) handleGoalRequestWithOriginal(goal float64, acceptState State, originalRequest *Request, originalUpdateTrajectory func(*Trajectory), originalTrajectory *Trajectory, originalOutgoingResponse chan Response) {
 	fmt.Println(c.Cart.Name, ": received goal request:", goal)
 
 	if c.LeftBorderTrajectory.end+c.safetyMargin < goal && goal < c.RightBorderTrajectory.end-c.safetyMargin {
 		c.acceptGoal(goal, acceptState)
 	} else {
-		c.queueBorderMoveRequest(goal, acceptState, nil, originalRequest, originalUpdateTrajectory, originalOutgoingResponse)
+		c.queueBorderMoveRequest(goal, acceptState, nil, originalRequest, originalUpdateTrajectory, originalTrajectory, originalOutgoingResponse)
 	}
 }
 
@@ -215,8 +217,7 @@ func (c *Controller) acceptGoal(goal float64, acceptState State) {
 	fmt.Println(c.Cart.Name, ": Goal accepted:", goal)
 	c.State = acceptState
 	// Handle incoming goal request
-	trajectory := c.MovementPlanner.CalculateTrajectory(c.Cart.Position, goal)
-	c.CurrentTrajectory = &trajectory
+	c.CurrentTrajectory = c.MovementPlanner.CalculateTrajectory(c.CurrentTrajectory, goal, false)
 }
 
 func (c *Controller) rejectGoal(goal float64) {
@@ -228,7 +229,7 @@ func (c *Controller) postponeGoal(goal float64) {
 	fmt.Println(c.Cart.Name, ": Goal postponed:", goal)
 }
 
-func (c *Controller) queueBorderMoveRequest(goal float64, acceptState State, oldRequestId *int64, originalRequest *Request, originalUpdateTrajectory func(*Trajectory), originalOutgoingResponse chan Response) {
+func (c *Controller) queueBorderMoveRequest(goal float64, acceptState State, oldRequestId *int64, originalRequest *Request, originalUpdateTrajectory func(*Trajectory), originalTrajectory *Trajectory, originalOutgoingResponse chan Response) {
 	fmt.Println(c.Cart.Name, ": Goal out of bounds, queuing border move request:", goal)
 	c.State = Requesting
 
@@ -256,6 +257,7 @@ func (c *Controller) queueBorderMoveRequest(goal float64, acceptState State, old
 				AcceptState:              acceptState, // State to transition to if the request is accepted
 				OriginalRequest:          originalRequest,
 				OriginalUpdateTrajectory: originalUpdateTrajectory,
+				OriginalTrajectory:       originalTrajectory,
 				OriginalOutgoingResponse: originalOutgoingResponse,
 			}
 			c.PendingRequests[requestId] = &requestParameters
@@ -296,9 +298,9 @@ func (c *Controller) handleResponse(response Response, side Side) {
 	case ACCEPT:
 		c.handleAcceptResponse(*requestParams, side)
 	case REJECT:
-		c.handleRejectResponse(*requestParams, side)
+		c.handleRejectResponse(*requestParams)
 	case WAIT:
-		c.handleWaitResponse(*requestParams, side)
+		c.handleWaitResponse(*requestParams)
 	default:
 		fmt.Println(c.Cart.Name, ": Unknown response received.")
 	}
@@ -308,17 +310,17 @@ func (c *Controller) handleAcceptResponse(requestParams RequestParameters, side 
 	fmt.Println(c.Cart.Name, ": Border move request accepted.")
 	// Update the border trajectory based on the accepted request
 	if side == Left {
-		trajectory := c.MovementPlanner.CalculateTrajectory(
-			requestParams.Request.ProposedBorderStart,
+		c.LeftBorderTrajectory = c.MovementPlanner.CalculateTrajectory(
+			c.LeftBorderTrajectory,
 			requestParams.Request.ProposedBorderEnd,
+			true,
 		)
-		c.LeftBorderTrajectory = &trajectory
 	} else {
-		trajectory := c.MovementPlanner.CalculateTrajectory(
-			requestParams.Request.ProposedBorderStart,
+		c.RightBorderTrajectory = c.MovementPlanner.CalculateTrajectory(
+			c.RightBorderTrajectory,
 			requestParams.Request.ProposedBorderEnd,
+			true,
 		)
-		c.RightBorderTrajectory = &trajectory
 	}
 
 	// Accept the goal and start moving towards it
@@ -326,11 +328,11 @@ func (c *Controller) handleAcceptResponse(requestParams RequestParameters, side 
 
 	// If this was triggered by an original request, accept that request too
 	if requestParams.OriginalRequest != nil && requestParams.OriginalUpdateTrajectory != nil && requestParams.OriginalOutgoingResponse != nil {
-		c.acceptRequest(requestParams.OriginalUpdateTrajectory, requestParams.OriginalOutgoingResponse, *requestParams.OriginalRequest)
+		c.acceptRequest(requestParams.OriginalUpdateTrajectory, requestParams.OriginalTrajectory, requestParams.OriginalOutgoingResponse, *requestParams.OriginalRequest)
 	}
 }
 
-func (c *Controller) handleRejectResponse(requestParams RequestParameters, side Side) {
+func (c *Controller) handleRejectResponse(requestParams RequestParameters) {
 	fmt.Println(c.Cart.Name, ": Border move request rejected.")
 	// Reject the goal and stop moving
 	c.rejectGoal(requestParams.Goal)
@@ -341,7 +343,7 @@ func (c *Controller) handleRejectResponse(requestParams RequestParameters, side 
 	}
 }
 
-func (c *Controller) handleWaitResponse(requestParams RequestParameters, side Side) {
+func (c *Controller) handleWaitResponse(requestParams RequestParameters) {
 	fmt.Println(c.Cart.Name, ": Border move request waiting for response.")
 	requestParams.RetryTime = time.Now().Add(1000 * time.Millisecond) // Retry after 1000ms
 	c.PendingRequests[requestParams.Request.RequestId] = &requestParams
@@ -361,6 +363,7 @@ func (c *Controller) handleIncomingRequest(request Request, side Side) {
 		c.handleBorderMove(
 			acceptImmediately,
 			func(t *Trajectory) { c.LeftBorderTrajectory = t },
+			c.LeftBorderTrajectory,
 			c.OutgoingLeftResponse,
 			request,
 			side,
@@ -370,6 +373,7 @@ func (c *Controller) handleIncomingRequest(request Request, side Side) {
 		c.handleBorderMove(
 			acceptImmediately,
 			func(t *Trajectory) { c.RightBorderTrajectory = t },
+			c.RightBorderTrajectory,
 			c.OutgoingRightResponse,
 			request,
 			side,
@@ -380,25 +384,27 @@ func (c *Controller) handleIncomingRequest(request Request, side Side) {
 func (c *Controller) handleBorderMove(
 	acceptImmediately bool,
 	updateTrajectory func(*Trajectory),
+	originalTrajectory *Trajectory,
 	outgoingResponse chan Response,
 	request Request,
 	side Side,
 ) {
 	fmt.Println(c.Cart.Name, ": Handling border move request:", request)
 	if acceptImmediately {
-		c.acceptRequest(updateTrajectory, outgoingResponse, request)
+		c.acceptRequest(updateTrajectory, originalTrajectory, outgoingResponse, request)
 	} else {
-		c.tryToGiveWay(updateTrajectory, outgoingResponse, request, side)
+		c.tryToGiveWay(updateTrajectory, originalTrajectory, outgoingResponse, request, side)
 	}
 }
 
-func (c *Controller) acceptRequest(updateTrajectory func(*Trajectory), outgoingResponse chan Response, request Request) {
+func (c *Controller) acceptRequest(updateTrajectory func(*Trajectory), originalTrajectory *Trajectory, outgoingResponse chan Response, request Request) {
 	fmt.Println(c.Cart.Name, ": Accepting border move request:", request)
 	trajectory := c.MovementPlanner.CalculateTrajectory(
-		request.ProposedBorderStart,
+		originalTrajectory,
 		request.ProposedBorderEnd,
+		true,
 	)
-	updateTrajectory(&trajectory)
+	updateTrajectory(trajectory)
 	outgoingResponse <- Response{
 		RequestId: request.RequestId,
 		Type:      ACCEPT,
@@ -421,7 +427,7 @@ func (c *Controller) postponeRequest(outgoingResponse chan Response, request Req
 	}
 }
 
-func (c *Controller) tryToGiveWay(updateTrajectory func(*Trajectory), outgoingResponse chan Response, request Request, side Side) {
+func (c *Controller) tryToGiveWay(updateTrajectory func(*Trajectory), originalTrajectory *Trajectory, outgoingResponse chan Response, request Request, side Side) {
 	fmt.Println(c.Cart.Name, ": Trying to give way to neighbor's request:", request)
 
 	avoidanceGoal := 0.0
@@ -440,10 +446,10 @@ func (c *Controller) tryToGiveWay(updateTrajectory func(*Trajectory), outgoingRe
 		if canAvoidImmediately {
 			// Avoidance maneuver is immediately successful, accept the original request
 			c.handleGoalRequest(avoidanceGoal, Avoiding)
-			c.acceptRequest(updateTrajectory, outgoingResponse, request)
+			c.acceptRequest(updateTrajectory, originalTrajectory, outgoingResponse, request)
 		} else {
 			// Avoidance maneuver requires border expansion, forward the response from that process
-			c.handleGoalRequestWithOriginal(avoidanceGoal, Avoiding, &request, updateTrajectory, outgoingResponse)
+			c.handleGoalRequestWithOriginal(avoidanceGoal, Avoiding, &request, updateTrajectory, originalTrajectory, outgoingResponse)
 		}
 	} else {
 		fmt.Println(c.Cart.Name, ": Cannot give way while not idle, postponing request.")

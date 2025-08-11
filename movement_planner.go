@@ -12,17 +12,39 @@ type MovementPlanner struct {
 }
 
 type internalState struct {
+	t float64 // time since t0
 	p float64
 	v float64
 	a float64
 	j float64
 }
 
+/*
+phases:
+
+Stopping phases:
+
+0: Increasing deceleration
+1: Constant deceleration
+2: Decreasing deceleration
+
+Point to point phases:
+
+3: Increasing acceleration
+4: Constant acceleration
+5: Decreasing acceleration
+6: Constant velocity
+7: Increasing deceleration
+8: Constant deceleration
+9: Decreasing deceleration
+10: Final state
+*/
 type Trajectory struct {
-	start, end float64          // Start and end positions of the trajectory
-	t          [8]float64       // Time points for trajectory phases
-	state      [8]internalState // States at each phase end (position, velocity, acceleration)
-	t0         time.Time        // Start time of the trajectory
+	end   float64           // Start and end positions of the trajectory
+	state [11]internalState // States at each phase end (position, velocity, acceleration)
+	t0    time.Time         // Start time of the trajectory
+
+	tjStop1, taStop, tjStop2, tj, ta, tv float64
 }
 
 type TrajectoryType int
@@ -43,7 +65,156 @@ func NewMovementPlanner(max_jerk, max_acceleration, max_velocity float64) *Movem
 	}
 }
 
-func (mpc *MovementPlanner) CalculateTrajectory(start, end float64) Trajectory {
+func (mpc *MovementPlanner) GetStationaryTrajectory(point float64) Trajectory {
+	// Create a stationary trajectory at the given point
+	return Trajectory{
+		end: point,
+		t0:  time.Now(),
+		state: [11]internalState{
+			{t: 0, p: point, v: 0, a: 0, j: 0},
+			{t: 0, p: point, v: 0, a: 0, j: 0},
+			{t: 0, p: point, v: 0, a: 0, j: 0},
+			{t: 0, p: point, v: 0, a: 0, j: 0},
+			{t: 0, p: point, v: 0, a: 0, j: 0},
+			{t: 0, p: point, v: 0, a: 0, j: 0},
+			{t: 0, p: point, v: 0, a: 0, j: 0},
+			{t: 0, p: point, v: 0, a: 0, j: 0},
+			{t: 0, p: point, v: 0, a: 0, j: 0},
+			{t: 0, p: point, v: 0, a: 0, j: 0},
+			{t: 0, p: point, v: 0, a: 0, j: 0},
+		},
+		tjStop1: 0,
+		taStop:  0,
+		tjStop2: 0,
+		tj:      0,
+		ta:      0,
+		tv:      0,
+	}
+}
+
+func (mpc *MovementPlanner) CalculateTrajectory(previousTrajectory *Trajectory, end float64, ignoreStopping bool) *Trajectory {
+	t0 := time.Now()
+
+	// calculate the stopping times
+
+	previousTrajectoryTime := time.Since(previousTrajectory.t0).Seconds()
+	// tjStop1 is to bring us to maximum deceleration,
+	// tjStop2 is to bring acceleration and velocity both back to zero
+	var tjStop1, taStop, tjStop2 float64
+
+	if previousTrajectoryTime <= previousTrajectory.state[1].t {
+		// we are in the first braking phase (braking jerk 1)
+		remainingTime := previousTrajectory.state[1].t - previousTrajectoryTime
+
+		tjStop1 = remainingTime
+		taStop = previousTrajectory.taStop
+		tjStop2 = previousTrajectory.tjStop2
+	} else if previousTrajectoryTime <= previousTrajectory.state[2].t {
+		// we are in the second braking phase (constant braking deceleration)
+		remainingTime := previousTrajectory.state[2].t - previousTrajectoryTime
+
+		tjStop1 = 0
+		taStop = remainingTime
+		tjStop2 = previousTrajectory.tjStop2
+	} else if previousTrajectoryTime <= previousTrajectory.state[3].t {
+		// we are in the third braking phase (braking jerk 2)
+		remainingTime := previousTrajectory.state[3].t - previousTrajectoryTime
+
+		tjStop1 = 0
+		taStop = 0
+		tjStop2 = remainingTime
+	} else if previousTrajectoryTime <= previousTrajectory.state[4].t {
+		// we are in the first phase (increasing acceleration)
+		tj := previousTrajectoryTime - previousTrajectory.state[3].t
+
+		tjStop1 = 2 * tj
+		taStop = 0
+		tjStop2 = tj
+	} else if previousTrajectoryTime <= previousTrajectory.state[5].t {
+		// we are in the second phase (constant acceleration)
+		tj := previousTrajectory.tj
+		ta := previousTrajectoryTime - previousTrajectory.state[4].t
+
+		tjStop1 = 2 * tj
+		taStop = ta
+		tjStop2 = tj
+	} else if previousTrajectoryTime <= previousTrajectory.state[6].t {
+		// we are in the third phase (decreasing acceleration)
+		tj := previousTrajectory.tj
+		remainingTime := previousTrajectory.state[6].t - previousTrajectoryTime
+
+		tjStop1 = remainingTime + tj
+		taStop = previousTrajectory.ta
+		tjStop2 = tj
+	} else if previousTrajectoryTime <= previousTrajectory.state[7].t {
+		// we are in the fourth phase (constant velocity)
+		// move the remainging phases to start now,
+		// as we already know that they are optimal for stopping from a given velocity
+		tj := previousTrajectory.tj
+
+		tjStop1 = tj
+		taStop = previousTrajectory.ta
+		tjStop2 = tj
+	} else if previousTrajectoryTime <= previousTrajectory.state[8].t {
+		// we are in the fifth phase (increasing deceleration)
+		tj := previousTrajectory.tj
+		remainingTime := previousTrajectory.state[8].t - previousTrajectoryTime
+
+		tjStop1 = remainingTime
+		taStop = previousTrajectory.ta
+		tjStop2 = tj
+	} else if previousTrajectoryTime <= previousTrajectory.state[9].t {
+		// we are in the sixth phase (constant deceleration)
+		tj := previousTrajectory.tj
+		remainingTime := previousTrajectory.state[9].t - previousTrajectoryTime
+
+		tjStop1 = 0
+		taStop = remainingTime
+		tjStop2 = tj
+	} else if previousTrajectoryTime <= previousTrajectory.state[10].t {
+		// we are in the seventh phase (decreasing deceleration)
+		remainingTime := previousTrajectory.state[10].t - previousTrajectoryTime
+
+		tjStop1 = 0
+		taStop = 0
+		tjStop2 = remainingTime
+	} else {
+		tjStop1 = 0
+		taStop = 0
+		tjStop2 = 0
+	}
+
+	// calculate our final position after stopping
+	initialState := previousTrajectory.calculateStateAtTime(previousTrajectoryTime)
+	initialState.t = 0
+	var jStop float64
+	if initialState.v > 0 {
+		jStop = mpc.max_jerk
+	} else {
+		jStop = -mpc.max_jerk
+	}
+
+	afterFirstBrakingJerk := initialState.moveStateForward(tjStop1, -jStop)
+	afterConstantBrakingDeceleration := afterFirstBrakingJerk.moveStateForward(taStop, 0)
+	afterSecondBrakingJerk := afterConstantBrakingDeceleration.moveStateForward(tjStop2, jStop)
+
+	// starting position after deceleration completes
+	start := afterSecondBrakingJerk.p
+
+	if ignoreStopping {
+		// If we are ignoring stopping, we can skip the braking phases
+		start = initialState.p
+		initialState.v = 0
+		initialState.a = 0
+		initialState.j = 0
+		afterSecondBrakingJerk = initialState
+		afterConstantBrakingDeceleration = initialState
+		afterFirstBrakingJerk = initialState
+		tjStop1 = 0
+		tjStop2 = 0
+		taStop = 0
+	}
+
 	s := math.Abs(end - start)
 
 	// rename parameters to match the paper
@@ -52,11 +223,11 @@ func (mpc *MovementPlanner) CalculateTrajectory(start, end float64) Trajectory {
 	vmax := mpc.max_velocity
 
 	// Calculate va, sa, sv
-	va := math.Pow(amax, 2) / jerk
-	sa := 2 * math.Pow(amax, 3) / math.Pow(jerk, 2)
+	va := amax * amax / jerk
+	sa := 2 * amax * amax * amax / (jerk * jerk)
 
 	var sv float64
-	if vmax*jerk < math.Pow(amax, 2) {
+	if vmax*jerk < amax*amax {
 		sv = 2 * vmax * math.Sqrt(vmax/jerk)
 	} else {
 		sv = vmax * (vmax/amax + amax/jerk)
@@ -79,34 +250,21 @@ func (mpc *MovementPlanner) CalculateTrajectory(start, end float64) Trajectory {
 	switch trajectoryType {
 	case JerkLimited:
 		tj = math.Cbrt(s / (2 * jerk))
-		ta = tj
-		tv = 2 * tj
+		ta = 0
+		tv = 0
 	case VelocityLimited:
 		tj = math.Sqrt(vmax / jerk)
-		tv = s / vmax
-		ta = tj
+		ta = 0
+		tv = s/vmax - 2*tj
 	case AccelerationLimitedWithMaxVelocity:
 		tj = amax / jerk
-		ta = vmax / amax
-		tv = s / vmax
+		ta = vmax/amax - tj
+		tv = s/vmax - 2*tj - ta
 	case AccelerationLimitedWithoutMaxVelocity:
 		tj = amax / jerk
-		ta = 0.5 * (math.Sqrt((4*s*math.Pow(jerk, 2)+math.Pow(amax, 3))/(amax*math.Pow(jerk, 2))) - amax/jerk)
-		tv = ta + tj
+		ta = 0.5*math.Sqrt((4*s*math.Pow(jerk, 2)+math.Pow(amax, 3))/(amax*math.Pow(jerk, 2))) - 1.5*tj
+		tv = 0
 	}
-
-	// calculate t1, t2, t3, t4, t5, t6, t7
-	var t [8]float64
-
-	// Time points
-	t[0] = 0
-	t[1] = tj
-	t[2] = ta
-	t[3] = tj + ta
-	t[4] = tv
-	t[5] = tj + tv
-	t[6] = tv + ta
-	t[7] = tv + ta + tj
 
 	if start < end {
 		jerk = mpc.max_jerk
@@ -114,145 +272,56 @@ func (mpc *MovementPlanner) CalculateTrajectory(start, end float64) Trajectory {
 		jerk = -mpc.max_jerk
 	}
 
-	trajectory := Trajectory{
-		start: start,
-		end:   end,
-		t:     t,
-		state: [8]internalState{
-			{j: jerk, p: start, v: 0, a: 0}, // Initial state
+	afterIncreasingAcceleration := afterSecondBrakingJerk.moveStateForward(tj, jerk)
+	afterConstantAcceleration := afterIncreasingAcceleration.moveStateForward(ta, 0)
+	afterDecreasingAcceleration := afterConstantAcceleration.moveStateForward(tj, -jerk)
+	afterConstantVelocity := afterDecreasingAcceleration.moveStateForward(tv, 0)
+	afterIncreasingDeceleration := afterConstantVelocity.moveStateForward(tj, -jerk)
+	afterConstantDeceleration := afterIncreasingDeceleration.moveStateForward(ta, 0)
+	afterDecreasingDeceleration := afterConstantDeceleration.moveStateForward(tj, jerk)
+
+	// Fix the final state's jerk to zero
+	afterDecreasingDeceleration.moveStateForward(0, 0)
+
+	tr := &Trajectory{
+		end: end,
+		t0:  t0,
+		state: [11]internalState{
+			initialState,
+			afterFirstBrakingJerk,
+			afterConstantBrakingDeceleration,
+			afterSecondBrakingJerk,
+			afterIncreasingAcceleration,
+			afterConstantAcceleration,
+			afterDecreasingAcceleration,
+			afterConstantVelocity,
+			afterIncreasingDeceleration,
+			afterConstantDeceleration,
+			afterDecreasingDeceleration,
 		},
-		t0: time.Now(),
+		tjStop1: tjStop1,
+		tjStop2: tjStop2,
+		tj:      tj,
+		ta:      ta,
+		tv:      tv,
 	}
-	for i := 1; i < 8; i++ {
-		trajectory.state[i] = trajectory.calculateStateInPhase(i, t[i]-t[i-1])
-		// fix jerk
-		switch i {
-		case 6:
-			trajectory.state[i].j = jerk
-		case 2, 4:
-			trajectory.state[i].j = -jerk
-		default:
-			trajectory.state[i].j = 0
-		}
-	}
-
-	return trajectory
-}
-
-// EmergencyStop creates a trajectory that brings the cart to a complete stop
-// as quickly as possible from its current state in the given trajectory
-func (mpc *MovementPlanner) EmergencyStop(currentTrajectory *Trajectory) Trajectory {
-	// Get current state
-	currentTime := time.Since(currentTrajectory.t0).Seconds()
-	currentState := currentTrajectory.calculateStateAtTime(currentTime)
-
-	// If we're already in the deceleration phase, just return the current trajectory
-	if currentTime > currentTrajectory.t[4] {
-		return *currentTrajectory
-	}
-
-	// Calculate emergency stop trajectory using maximum deceleration
-	// We need to bring velocity and acceleration to zero
-	jerk := mpc.max_jerk
-	amax := mpc.max_acceleration
-
-	// Determine direction - decelerate opposite to current velocity
-	if currentState.v > 0 {
-		jerk = -mpc.max_jerk
-		amax = -mpc.max_acceleration
-	}
-
-	// If we're already decelerating in the right direction, continue
-	// If we're accelerating in the wrong direction, we need to reverse
-	var phase1_jerk, phase2_jerk, phase3_jerk float64
-	var t1, t2, t3 float64
-
-	// Phase 1: Adjust acceleration to maximum deceleration
-	if (currentState.v > 0 && currentState.a > -mpc.max_acceleration) ||
-		(currentState.v < 0 && currentState.a < mpc.max_acceleration) {
-		phase1_jerk = jerk
-		t1 = math.Abs(amax-currentState.a) / mpc.max_jerk
-	} else {
-		t1 = 0
-		phase1_jerk = 0
-	}
-
-	// Calculate state after phase 1
-	state1 := internalState{
-		p: currentState.p + currentState.v*t1 + 0.5*currentState.a*t1*t1 + (1.0/6.0)*phase1_jerk*t1*t1*t1,
-		v: currentState.v + currentState.a*t1 + 0.5*phase1_jerk*t1*t1,
-		a: currentState.a + phase1_jerk*t1,
-		j: 0,
-	}
-
-	// Phase 2: Constant maximum deceleration until we need to ease off
-	phase2_jerk = 0
-	velocityToStop := math.Abs(state1.v)
-	timeToEaseOff := math.Abs(state1.a) / mpc.max_jerk
-	velocityDuringEaseOff := 0.5 * math.Abs(state1.a) * timeToEaseOff
-
-	if velocityToStop > velocityDuringEaseOff {
-		t2 = (velocityToStop - velocityDuringEaseOff) / math.Abs(state1.a)
-	} else {
-		t2 = 0
-	}
-
-	// Calculate state after phase 2
-	state2 := internalState{
-		p: state1.p + state1.v*t2 + 0.5*state1.a*t2*t2,
-		v: state1.v + state1.a*t2,
-		a: state1.a,
-		j: 0,
-	}
-
-	// Phase 3: Ease off acceleration to zero
-	phase3_jerk = -jerk // Opposite direction to reduce deceleration to zero
-	t3 = math.Abs(state2.a) / mpc.max_jerk
-
-	// Calculate final state
-	finalState := internalState{
-		p: state2.p + state2.v*t3 + 0.5*state2.a*t3*t3 + (1.0/6.0)*phase3_jerk*t3*t3*t3,
-		v: state2.v + state2.a*t3 + 0.5*phase3_jerk*t3*t3,
-		a: 0,
-		j: 0,
-	}
-
-	// Create trajectory with 4 phases (current state + 3 stop phases)
-	var t [8]float64
-	t[0] = 0
-	t[1] = t1
-	t[2] = t1 + t2
-	t[3] = t1 + t2 + t3
-	// Fill remaining times with the final time (stationary)
-	for i := 4; i < 8; i++ {
-		t[i] = t[3]
-	}
-
-	trajectory := Trajectory{
-		start: currentState.p,
-		end:   finalState.p,
-		t:     t,
-		state: [8]internalState{
-			{j: phase1_jerk, p: currentState.p, v: currentState.v, a: currentState.a},
-			{j: phase2_jerk, p: state1.p, v: state1.v, a: state1.a},
-			{j: phase3_jerk, p: state2.p, v: state2.v, a: state2.a},
-			{j: 0, p: finalState.p, v: finalState.v, a: finalState.a},
-			{j: 0, p: finalState.p, v: 0, a: 0}, // Ensure we're completely stopped
-			{j: 0, p: finalState.p, v: 0, a: 0},
-			{j: 0, p: finalState.p, v: 0, a: 0},
-			{j: 0, p: finalState.p, v: 0, a: 0},
-		},
-		t0: time.Now(),
-	}
-
-	return trajectory
+	return tr
 }
 
 func (trajectory Trajectory) calculateStateInPhase(phase int, dt float64) internalState {
 	initialState := trajectory.state[phase-1]
 
 	// Calculate the position, velocity and acceleration at time t in the given phase
+	return initialState.moveStateForward(dt, initialState.j)
+}
+
+func (initialState *internalState) moveStateForward(dt, jerk float64) internalState {
+	// set the initial state's jerk
+	initialState.j = jerk
+
+	// Calculate the position, velocity and acceleration at time t in the given phase
 	return internalState{
+		t: initialState.t + dt,
 		p: initialState.p + initialState.v*dt + 0.5*initialState.a*dt*dt + (1.0/6.0)*initialState.j*dt*dt*dt,
 		v: initialState.v + initialState.a*dt + 0.5*initialState.j*dt*dt,
 		a: initialState.a + initialState.j*dt,
@@ -267,43 +336,52 @@ func (trajectory Trajectory) calculateStateAtTime(t float64) internalState {
 	}
 
 	// After the trajectory ends, return the end state
-	if t > trajectory.t[7] {
-		return trajectory.state[7]
+	if t > trajectory.state[10].t {
+		return trajectory.state[10]
 	}
 
 	// Find which phase we're in and calculate the state
-	for phase := 1; phase <= 7; phase++ {
-		if t <= trajectory.t[phase] {
-			dt := t - trajectory.t[phase-1]
+	for phase := 1; phase <= 10; phase++ {
+		if t <= trajectory.state[phase].t {
+			dt := t - trajectory.state[phase-1].t
 			return trajectory.calculateStateInPhase(phase, dt)
 		}
 	}
 
 	// This should never be reached, but return end state as fallback
-	return trajectory.state[7]
+	return trajectory.state[10]
+}
+
+func (trajectory Trajectory) GetCurrentState() internalState {
+	t := time.Since(trajectory.t0).Seconds()
+	return trajectory.calculateStateAtTime(t)
 }
 
 func (trajectory Trajectory) GetCurrentPosition() float64 {
-	t := time.Since(trajectory.t0).Seconds()
-	return trajectory.calculateStateAtTime(t).p
+	return trajectory.GetCurrentState().p
 }
 
 func (trajectory Trajectory) GetCurrentVelocity() float64 {
-	t := time.Since(trajectory.t0).Seconds()
-	return trajectory.calculateStateAtTime(t).v
+	return trajectory.GetCurrentState().v
 }
 
 func (trajectory Trajectory) GetCurrentAcceleration() float64 {
-	t := time.Since(trajectory.t0).Seconds()
-	return trajectory.calculateStateAtTime(t).a
+	return trajectory.GetCurrentState().a
 }
 
 func (trajectory Trajectory) GetCurrentJerk() float64 {
-	t := time.Since(trajectory.t0).Seconds()
-	return trajectory.calculateStateAtTime(t).j
+	return trajectory.GetCurrentState().j
 }
 
 func (trajectory Trajectory) IsFinished() bool {
-	t := time.Since(trajectory.t0).Seconds()
-	return t >= trajectory.t[7]
+	return time.Since(trajectory.t0).Seconds() >= trajectory.state[10].t
+}
+
+func (trajectory Trajectory) GetBounds() (float64, float64) {
+	start := trajectory.state[0].p
+	afterBraking := trajectory.state[3].p
+	end := trajectory.state[10].p
+	min := min(start, afterBraking, end)
+	max := max(start, afterBraking, end)
+	return min, max
 }
