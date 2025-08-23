@@ -17,6 +17,8 @@ type PID struct {
 	Output float64
 	// The sample time
 	SampleTime float64
+	// The maximum output (minimum is -MaxOutput)
+	MaxOutput float64
 }
 
 // NewPID creates a new PID controller
@@ -52,6 +54,5 @@ func (pid *PID) Update(input float64) float64 {
 // SetSetpoint sets the setpoint of the PID controller
 func (pid *PID) SetSetpoint(setpoint float64) {
 	pid.Setpoint = setpoint
-	pid.Integral = 0
 	pid.PreviousError = 0
 }

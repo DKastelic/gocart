@@ -13,7 +13,7 @@
         borderBottomColor: currentThemeConfig.panelTitleBorder
       }"
     >
-      Simulation Controls
+      Nadzorna plošča simulacije
     </h3>
     
     <!-- Cart Goal Controls -->
@@ -28,19 +28,19 @@
         class="section-title"
         :style="{ color: currentThemeConfig.sectionTitleColor }"
       >
-        Cart Goals
+        Cilji
       </h4>
-      <div v-for="(cart, index) in carts" :key="index" class="cart-control">
+      <div v-for="cart in activeCarts" :key="cart.id" class="cart-control">
         <label 
           class="cart-label"
           :style="{ color: currentThemeConfig.labelColor }"
         >
-          Cart {{ index + 1 }}:
+          Agent {{ cart.id }}:
         </label>
         <input 
           type="number" 
-          v-model="cart.goal" 
-          :placeholder="`Goal for cart ${index + 1}`"
+          v-model="cartGoals[cart.id]" 
+          :placeholder="`Cilj za agenta ${cart.id}`"
           step="10"
           class="goal-input"
           :style="{ 
@@ -50,16 +50,27 @@
           }"
         />
         <button 
-          @click="setGoal(index, cart.goal)" 
+          @click="setGoal(cart.id, cartGoals[cart.id])" 
           class="set-button"
-          :disabled="!cart.goal"
+          :disabled="!cartGoals[cart.id]"
           :style="{ 
-            backgroundColor: !cart.goal ? currentThemeConfig.buttonDisabledBackground : currentThemeConfig.buttonBackground,
+            backgroundColor: !cartGoals[cart.id] ? currentThemeConfig.buttonDisabledBackground : currentThemeConfig.buttonBackground,
             borderColor: currentThemeConfig.buttonBorder,
-            color: !cart.goal ? currentThemeConfig.buttonDisabledColor : currentThemeConfig.buttonColor
+            color: !cartGoals[cart.id] ? currentThemeConfig.buttonDisabledColor : currentThemeConfig.buttonColor
           }"
         >
-          Set Goal
+          Nastavi cilj
+        </button>
+        <button 
+          @click="emergencyStop(cart.id)" 
+          class="emergency-button"
+          :style="{ 
+            backgroundColor: '#dc3545',
+            borderColor: '#dc3545',
+            color: '#ffffff'
+          }"
+        >
+          Ustavi
         </button>
       </div>
     </div>
@@ -76,7 +87,7 @@
         class="section-title"
         :style="{ color: currentThemeConfig.sectionTitleColor }"
       >
-        Random Goals
+        Naključni cilji
       </h4>
       <div class="random-control">
         <label class="checkbox-label">
@@ -90,7 +101,7 @@
             class="checkbox-text"
             :style="{ color: currentThemeConfig.checkboxTextColor }"
           >
-            Enable Random Goal Generation
+            Omogoči generiranje naključnih ciljev
           </span>
         </label>
       </div>
@@ -121,10 +132,10 @@
           class="status-label"
           :style="{ color: currentThemeConfig.statusLabelColor }"
         >
-          Connection:
+          Dostopnost simulacije:
         </span>
         <span :class="['status-value', isConnected ? 'connected' : 'disconnected']">
-          {{ isConnected ? 'connected' : 'disconnected' }}
+          {{ isConnected ? 'povezana' : 'odklopljena' }}
         </span>
       </div>
       <div 
@@ -138,10 +149,10 @@
           class="status-label"
           :style="{ color: currentThemeConfig.statusLabelColor }"
         >
-          Random Goals:
+          Naključni cilji:
         </span>
         <span :class="['status-value', randomGoalsEnabled ? 'enabled' : 'disabled']">
-          {{ randomGoalsEnabled ? 'Enabled' : 'Disabled' }}
+          {{ randomGoalsEnabled ? 'omogočeni' : 'onemogočeni' }}
         </span>
       </div>
     </div>
@@ -149,32 +160,43 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue';
+import { ref, reactive, computed } from 'vue';
 import { useWebSocket } from '@/state';
 import { useTheme } from '@/composables/useTheme';
 
-interface Cart {
-  goal: number | null;
-}
-
 const { currentThemeConfig } = useTheme();
 
-const carts = reactive<Cart[]>([
-  { goal: null },
-  { goal: null },
-  { goal: null },
-  { goal: null }
-]);
+// Get cart data from WebSocket state
+const { cartDataMap, setGoal: sendSetGoal, emergencyStop: sendEmergencyStop, toggleRandomGoals: sendToggleRandomGoals, isConnected } = useWebSocket();
+
+// Reactive goals for each cart
+const cartGoals = reactive<Record<number, number | null>>({});
+
+// Computed property for active carts
+const activeCarts = computed(() => {
+  return Array.from(cartDataMap.values()).sort((a, b) => a.id - b.id);
+});
 
 const randomGoalsEnabled = ref(false);
 
-const { setGoal: sendSetGoal, toggleRandomGoals: sendToggleRandomGoals, isConnected } = useWebSocket();
-
-function setGoal(cartIndex: number, goal: number | null) {
+function setGoal(cartId: number, goal: number | null) {
   if (goal !== null) {
-    sendSetGoal(cartIndex + 1, goal); // Convert to 1-based index
-    console.log(`Set goal for cart ${cartIndex + 1}: ${goal}`);
+    sendSetGoal(cartId, goal); // Cart IDs are already 1-based
+    console.log(`Set goal for cart ${cartId}: ${goal}`);
   }
+}
+
+function emergencyStop(cartId: number) {
+  sendEmergencyStop(cartId); // Cart IDs are already 1-based
+  console.log(`Emergency stop for cart ${cartId}`);
+}
+
+function emergencyStopAll() {
+  // Stop all active carts
+  activeCarts.value.forEach(cart => {
+    sendEmergencyStop(cart.id);
+  });
+  console.log('Emergency stop for all carts');
 }
 
 function toggleRandomGoals() {
@@ -189,7 +211,6 @@ function toggleRandomGoals() {
   padding: 15px;
   font-family: Arial, sans-serif;
   margin: 0;
-  height: 100%;
 }
 
 .panel-title {
@@ -254,6 +275,38 @@ function toggleRandomGoals() {
 
 .set-button:disabled {
   cursor: not-allowed;
+}
+
+.emergency-button {
+  border: 1px solid;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: opacity 0.2s ease;
+  margin-left: 5px;
+}
+
+.emergency-button:hover {
+  opacity: 0.8;
+}
+
+.emergency-control {
+  padding: 8px;
+  text-align: center;
+}
+
+.emergency-all-button {
+  border: 2px solid;
+  padding: 10px 20px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+  transition: opacity 0.2s ease;
+  width: 100%;
+}
+
+.emergency-all-button:hover {
+  opacity: 0.8;
 }
 
 .random-control {

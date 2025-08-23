@@ -8,7 +8,7 @@ import (
 // FPS is the frames per second for the physics loop
 const PHYSICS_FPS = 1000
 
-func physics_loop(carts []Cart, exit_channel chan struct{}) {
+func physics_loop(scenarioManager *ScenarioManager, exit_channel chan struct{}) {
 
 	ticker := time.NewTicker(time.Second / PHYSICS_FPS)
 	defer ticker.Stop()
@@ -20,6 +20,12 @@ func physics_loop(carts []Cart, exit_channel chan struct{}) {
 		// Calculate delta time
 		deltaTime := t.Sub(previousTime).Seconds()
 		previousTime = t
+
+		// Get current carts from scenario manager
+		carts := scenarioManager.carts
+		if len(carts) == 0 {
+			continue // No carts to process
+		}
 
 		// Update the physics of each cart
 		for i := range carts {

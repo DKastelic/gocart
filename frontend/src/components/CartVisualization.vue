@@ -24,16 +24,16 @@ import { useTheme } from '../composables/useTheme';
 const SCREEN_WIDTH = 1600;
 const SCREEN_HEIGHT = 900;
 
+const REAL_WIDTH = 1600;
+const scale_x = SCREEN_WIDTH / REAL_WIDTH;
+
 const canvas = ref<HTMLCanvasElement | null>(null);
 const { currentThemeConfig } = useTheme();
 let ctx: CanvasRenderingContext2D | null = null;
 let animationId: number | null = null;
 
-// Cart data storage
-const carts = ref<Map<number, SocketData>>(new Map());
-
-const { onCartData } = useWebSocket();
-let cleanup: (() => void) | null = null;
+// Use the shared cart data map instead of local storage
+const { cartDataMap } = useWebSocket();
 
 // Approximate cart dimensions (these should ideally come from the backend)
 const CART_WIDTH = 50;
@@ -45,13 +45,9 @@ const stateColors = {
   'Busy': '#9932CC',        // Purple
   'Requesting': '#FFA500',  // Orange
   'Moving': '#00FF00',      // Green
-  'Avoiding': '#FF0000'     // Red
+  'Avoiding': '#FF0000',    // Red
+  'Stopping': '#FFFF00'     // Yellow
 } as const;
-
-// Register websocket callback to receive cart data
-const handleCartData = (data: SocketData) => {
-  carts.value.set(data.id, data);
-};
 
 // Drawing functions
 function clearCanvas() {
@@ -64,7 +60,7 @@ function drawCart(cartData: SocketData) {
   if (!ctx) return;
   
   // Calculate cart position
-  const x = cartData.position - CART_WIDTH / 2;
+  const x = cartData.position * scale_x - CART_WIDTH / 2;
   const y = SCREEN_HEIGHT / 2 - CART_HEIGHT / 2;
   
   // Set cart color based on state
@@ -76,14 +72,14 @@ function drawCart(cartData: SocketData) {
   ctx.fillStyle = currentThemeConfig.value.canvasTextColor;
   ctx.font = '12px Arial';
   ctx.textAlign = 'center';
-  ctx.fillText(cartData.id.toString(), cartData.position, y - 5);
+  ctx.fillText(cartData.id.toString(), cartData.position * scale_x, y - 5);
 }
 
 function drawGoal(cartData: SocketData) {
   if (!ctx) return;
   
   const goalRadius = 8;
-  const x = cartData.goal;
+  const x = cartData.goal * scale_x;
   const y = SCREEN_HEIGHT / 2 - CART_HEIGHT / 4;
   
   ctx.fillStyle = '#FF0000'; // Red
@@ -96,7 +92,7 @@ function drawSetpoint(cartData: SocketData) {
   if (!ctx) return;
   
   const setpointRadius = 6;
-  const x = cartData.setpoint;
+  const x = cartData.setpoint * scale_x;
   const y = SCREEN_HEIGHT / 2 + CART_HEIGHT / 4;
   
   ctx.fillStyle = currentThemeConfig.value.setpointColor;
@@ -110,17 +106,20 @@ function drawBounds(cartData: SocketData) {
   
   // Left bound
   ctx.fillStyle = '#00FF00'; // Green
-  ctx.fillRect(cartData.leftBorder, 0, 2, SCREEN_HEIGHT);
+  ctx.fillRect(cartData.leftBorder * scale_x, 0, 2, SCREEN_HEIGHT);
   
   // Right bound
-  ctx.fillRect(cartData.rightBorder - 2, 0, 2, SCREEN_HEIGHT);
+  ctx.fillRect(cartData.rightBorder * scale_x - 2, 0, 2, SCREEN_HEIGHT);
 }
 
 function drawFrame() {
   clearCanvas();
-  
-  // Draw all carts and their associated elements
-  carts.value.forEach((cartData) => {
+
+  // Draw rail
+  drawRail();
+
+  // Draw all carts and their associated elements using the shared cart data map
+  cartDataMap.forEach((cartData) => {
     drawBounds(cartData);
     drawCart(cartData);
     drawGoal(cartData);
@@ -129,6 +128,13 @@ function drawFrame() {
   
   // Draw legend
   drawLegend();
+}
+
+function drawRail() {
+  if (!ctx) return;
+
+  ctx.fillStyle = '#CCCCCC'; // Light gray
+  ctx.fillRect(0, SCREEN_HEIGHT / 2 - 2, SCREEN_WIDTH, 4);
 }
 
 function drawLegend() {
@@ -143,15 +149,16 @@ function drawLegend() {
   
   // Title
   ctx.fillStyle = currentThemeConfig.value.canvasLegendColor;
-  ctx.fillText('Cart States:', legendX, legendY);
+  ctx.fillText('Stanja:', legendX, legendY);
   
   // Legend items
   const states = [
-    { name: 'Idle', color: stateColors.Idle },
-    { name: 'Busy', color: stateColors.Busy },
-    { name: 'Requesting', color: stateColors.Requesting },
-    { name: 'Moving', color: stateColors.Moving },
-    { name: 'Avoiding', color: stateColors.Avoiding }
+    { name: 'Čakanje cilja', color: stateColors.Idle },
+    { name: 'Izvajanje naloge', color: stateColors.Busy },
+    { name: 'Pogajanje', color: stateColors.Requesting },
+    { name: 'Premikanje', color: stateColors.Moving },
+    { name: 'Izogibanje', color: stateColors.Avoiding },
+    { name: 'Ustavljanje', color: stateColors.Stopping }
   ];
   
   states.forEach((state, index) => {
@@ -173,12 +180,12 @@ function drawLegend() {
   // Add indicators section
   const indicatorsY = legendY + 20 + (states.length * legendItemHeight) + 20;
   ctx.fillStyle = currentThemeConfig.value.canvasLegendColor;
-  ctx.fillText('Indicators:', legendX, indicatorsY);
+  ctx.fillText('Indikatorji:', legendX, indicatorsY);
   
   const indicators = [
-    { name: 'Goal', color: '#FF0000' },
-    { name: 'Setpoint', color: currentThemeConfig.value.setpointColor },
-    { name: 'Bounds', color: '#00FF00' }
+    { name: 'Cilj', color: '#FF0000' },
+    // { name: 'Setpoint', color: currentThemeConfig.value.setpointColor },
+    { name: 'Meje', color: '#00FF00' }
   ];
   
   indicators.forEach((indicator, index) => {
@@ -217,10 +224,7 @@ onMounted(() => {
   if (canvas.value) {
     ctx = canvas.value.getContext('2d');
     if (ctx) {
-      // Register for cart data updates
-      cleanup = onCartData(handleCartData);
-      
-      // Start animation loop
+      // Start animation loop - it will automatically use the reactive cartDataMap
       startAnimation();
     }
   }
@@ -228,9 +232,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopAnimation();
-  if (cleanup) {
-    cleanup();
-  }
 });
 </script>
 

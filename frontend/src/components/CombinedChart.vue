@@ -16,13 +16,15 @@ import { use } from 'echarts/core'
 import VChart from 'vue-echarts'
 import { CanvasRenderer } from 'echarts/renderers'
 import { LineChart } from 'echarts/charts'
-import { TooltipComponent, TitleComponent, GridComponent, LegendComponent } from 'echarts/components'
-import type { SocketData, AllCartsData } from '../state'
+import { TooltipComponent, TitleComponent, GridComponent, LegendComponent, MarkLineComponent } from 'echarts/components'
+import type { AllCartsData } from '../state'
+import { useWebSocket } from '../state'
 import { useTheme } from '../composables/useTheme'
 
-use([CanvasRenderer, LineChart, TooltipComponent, TitleComponent, GridComponent, LegendComponent])
+use([CanvasRenderer, LineChart, TooltipComponent, TitleComponent, GridComponent, LegendComponent, MarkLineComponent])
 
 const { currentThemeConfig } = useTheme()
+const { clearChartsSignal } = useWebSocket()
 
 const props = defineProps<{
   title: string
@@ -30,10 +32,18 @@ const props = defineProps<{
   data: AllCartsData | null
   num_carts: number
   cart_visibility: Record<number, boolean>
+  show_trajectory_transitions: boolean
 }>()
 
 // Generate colors for different carts
 const cartColors = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4']
+
+const unitMap: Record<string, string> = {
+  chartPosition: 'mm',
+  chartVelocity: 'mm/s',
+  chartAcceleration: 'mm/s²',
+  chartJerk: 'mm/s³'
+}
 
 const chartOptions = ref({
   backgroundColor: '',
@@ -90,7 +100,8 @@ const chartOptions = ref({
       }
     },
     axisLabel: {
-      color: ''
+      color: '',
+      formatter: '{value} ' + (unitMap[props.value_type] || '')
     },
     splitLine: {
       lineStyle: {
@@ -130,9 +141,11 @@ function initializeSeries() {
   const legendData = []
   
   for (let i = 1; i <= props.num_carts; i++) {
-    const cartName = `Cart ${i}`
-    legendData.push(cartName)
-    
+    const cartName = `Agent ${i}`
+    if (props.num_carts > 1) {
+      legendData.push(cartName)
+    }
+
     series.push({
       name: cartName,
       type: 'line',
@@ -143,6 +156,18 @@ function initializeSeries() {
       },
       lineStyle: {
         color: cartColors[(i - 1) % cartColors.length]
+      },
+      markLine: {
+        silent: true,
+        animation: false,
+        symbol: 'none',
+        lineStyle: {
+          type: 'dashed',
+          color: '#888888',
+          width: 1,
+          opacity: 0.6
+        },
+        data: [] as any[]
       }
     })
   }
@@ -185,11 +210,38 @@ watch(() => props.cart_visibility, () => {
   updateSeriesVisibility()
 }, { deep: true })
 
+// Watch for trajectory transitions visibility changes
+watch(() => props.show_trajectory_transitions, () => {
+  updateTrajectoryTransitionLines()
+})
+
+// Function to clear all chart data
+function clearChartData() {
+  // Clear all series data
+  chartOptions.value.series.forEach(series => {
+    series.data = []
+    if (series.markLine) {
+      series.markLine.data = []
+    }
+  })
+  
+  // Clear trajectory transitions
+  trajectoryTransitions.value.clear()
+}
+
+// Watch for clear charts signal (when scenarios are run)
+watch(clearChartsSignal, () => {
+  clearChartData()
+})
+
 let updateTimeout: ReturnType<typeof setTimeout> | null = null
 let pendingData: AllCartsData[] = []
 
+// Store trajectory transition timestamps and phases for vertical lines
+const trajectoryTransitions = ref<Map<string, string>>(new Map()) // timestamp -> phase label
+
 // Time window in milliseconds (e.g., 30 seconds)
-const TIME_WINDOW_MS = 30000
+const TIME_WINDOW_MS = 10000
 
 function filterDataByTimeWindow(data: [string, number][]): [string, number][] {
   if (data.length === 0) return data
@@ -203,6 +255,91 @@ function filterDataByTimeWindow(data: [string, number][]): [string, number][] {
   })
 }
 
+// Filter trajectory transitions by time window
+function filterTransitionsByTimeWindow(transitions: Map<string, string>): Array<{timestamp: string, phase: string}> {
+  const now = new Date().getTime()
+  const cutoffTime = now - TIME_WINDOW_MS
+  
+  return Array.from(transitions.entries())
+    .filter(([timestamp]) => {
+      const pointTime = new Date(timestamp).getTime()
+      return pointTime >= cutoffTime
+    })
+    .map(([timestamp, phase]) => ({ timestamp, phase }))
+}
+
+// Update trajectory transitions with new data
+function updateTrajectoryTransitions(data: AllCartsData) {
+  if (!props.show_trajectory_transitions) return
+  
+  data.carts.forEach(cartData => {
+    cartData.trajectoryTransitions.forEach((timestamp, index) => {
+      const phase = cartData.trajectoryPhases[index] || 'Unknown'
+      trajectoryTransitions.value.set(timestamp, phase)
+    })
+  })
+  
+  // Filter old transitions outside the time window
+  const validTransitions = filterTransitionsByTimeWindow(trajectoryTransitions.value)
+  trajectoryTransitions.value.clear()
+  validTransitions.forEach(({ timestamp, phase }) => trajectoryTransitions.value.set(timestamp, phase))
+}
+
+// Update vertical lines for trajectory transitions
+function updateTrajectoryTransitionLines() {
+  if (!props.show_trajectory_transitions) {
+    // Clear all markLine data when disabled
+    chartOptions.value.series.forEach(series => {
+      if (series.markLine) {
+        series.markLine.data = []
+      }
+    })
+    return
+  }
+  
+  const validTransitions = filterTransitionsByTimeWindow(trajectoryTransitions.value)
+
+  const translations: { [key: string]: string } = {
+    "Start": "(1)",
+    "Increasing acceleration": "(1)",
+    "Constant acceleration": "(2)",
+    "Decreasing acceleration": "(3)",
+    "Constant velocity": "(4)",
+    "Increasing deceleration": "(5)",
+    "Constant deceleration": "(6)",
+    "Decreasing deceleration": "(7)",
+    "Final state": "(8)",
+  }
+  
+  // Add vertical lines for each transition timestamp with phase labels
+  const markLineData = validTransitions.map(({ timestamp, phase }) => ({
+    xAxis: timestamp,
+    lineStyle: {
+      type: 'dashed',
+      color: '#000000',
+      width: 1,
+      opacity: 0.6
+    },
+    label: {
+      show: true,
+      formatter: translations[phase] || phase,
+      rotate: 0, // Angle the text to prevent overlap
+      color: '#000000',
+      fontSize: 12,
+      fontWeight: 'normal',
+      backgroundColor: 'rgba(255, 255, 255, 0.8)',
+      borderRadius: 2,
+      // padding: [2, 4], 
+      align: 'center',
+    }
+  }))
+  
+  // Update markLine data for the first series only (to avoid duplicate lines)
+  if (chartOptions.value.series.length > 0 && chartOptions.value.series[0].markLine) {
+    chartOptions.value.series[0].markLine.data = markLineData
+  }
+}
+
 watch(() => props.data, (newData) => {
   if (!newData) return
 
@@ -213,6 +350,9 @@ watch(() => props.data, (newData) => {
     updateTimeout = setTimeout(() => {
       // Process all pending updates
       pendingData.forEach(dataUpdate => {
+        // Update trajectory transitions
+        updateTrajectoryTransitions(dataUpdate)
+        
         dataUpdate.carts.forEach(cartData => {
           const cartId = cartData.id
           const seriesIndex = cartId - 1
@@ -234,6 +374,9 @@ watch(() => props.data, (newData) => {
         series.data = filterDataByTimeWindow(series.data)
       })
       
+      // Update trajectory transition lines
+      updateTrajectoryTransitionLines()
+      
       // Clear pending updates and reset timeout
       pendingData = []
       updateTimeout = null
@@ -245,34 +388,13 @@ watch(() => props.data, (newData) => {
 <style scoped>
 .combined-chart {
   width: 100%;
-  height: 300px;
+  height: 290px;
   border: 1px solid;
   padding: 10px;
-  margin-bottom: 10px;
   transition: all 0.2s ease;
 }
 
 .combined-chart:hover {
   opacity: 0.9;
-}
-
-@media (max-width: 1400px) {
-  .combined-chart {
-    height: 380px;
-  }
-}
-
-@media (max-width: 900px) {
-  .combined-chart {
-    height: 320px;
-    padding: 10px;
-  }
-}
-
-@media (max-width: 600px) {
-  .combined-chart {
-    height: 280px;
-    padding: 8px;
-  }
 }
 </style>

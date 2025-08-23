@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -15,6 +14,16 @@ type ControlMessage struct {
 	Controller int     `json:"controller,omitempty"`
 	Position   float64 `json:"position,omitempty"`
 	Enabled    bool    `json:"enabled,omitempty"`
+}
+
+type TestMessage struct {
+	Type string      `json:"type"` // "start_tests", "test_status", "test_results"
+	Data interface{} `json:"data,omitempty"`
+}
+
+type ScenarioMessage struct {
+	Type string      `json:"type"` // "list_scenarios", "run_scenario", "scenario_status"
+	Data interface{} `json:"data,omitempty"`
 }
 
 type SocketData struct {
@@ -34,83 +43,21 @@ type SocketData struct {
 	Goal        float64 `json:"goal"`
 	Setpoint    float64 `json:"setpoint"`
 	State       string  `json:"state"` // "Idle", "Moving", "Avoiding"
+
+	// Trajectory phase transitions (timestamps when trajectory phases change)
+	TrajectoryTransitions []string `json:"trajectoryTransitions"`
+
+	// Trajectory phase information (phase labels corresponding to transitions)
+	TrajectoryPhases []string `json:"trajectoryPhases"`
+
+	// Performance metrics
+	Metrics MessageMetricsReport `json:"metrics"`
 }
 
 type AllCartsData struct {
 	Carts     []SocketData `json:"carts"`
 	Timestamp string       `json:"timestamp"`
 }
-
-// HistoricalDataStore manages historical data storage with automatic cleanup
-type HistoricalDataStore struct {
-	mu       sync.RWMutex
-	data     []AllCartsData
-	maxAge   time.Duration
-	maxCount int
-}
-
-// NewHistoricalDataStore creates a new historical data store
-func NewHistoricalDataStore(maxAge time.Duration, maxCount int) *HistoricalDataStore {
-	return &HistoricalDataStore{
-		data:     make([]AllCartsData, 0, maxCount),
-		maxAge:   maxAge,
-		maxCount: maxCount,
-	}
-}
-
-// AddDataPoint adds a new data point and manages cleanup
-func (hds *HistoricalDataStore) AddDataPoint(allCartsData AllCartsData) {
-	hds.mu.Lock()
-	defer hds.mu.Unlock()
-
-	hds.data = append(hds.data, allCartsData)
-
-	// Parse timestamp for age-based cleanup
-	timestamp, err := time.Parse(time.RFC3339Nano, allCartsData.Timestamp)
-	if err != nil {
-		// If timestamp parsing fails, use current time
-		timestamp = time.Now()
-	}
-
-	// Remove old data by age
-	cutoff := timestamp.Add(-hds.maxAge)
-	start := 0
-	for i, data := range hds.data {
-		if dataTimestamp, err := time.Parse(time.RFC3339Nano, data.Timestamp); err == nil && dataTimestamp.After(cutoff) {
-			start = i
-			break
-		}
-	}
-	if start > 0 {
-		hds.data = hds.data[start:]
-	}
-
-	// Remove old data by count
-	if len(hds.data) > hds.maxCount {
-		excess := len(hds.data) - hds.maxCount
-		hds.data = hds.data[excess:]
-	}
-}
-
-// GetHistoricalData returns all historical data points
-func (hds *HistoricalDataStore) GetHistoricalData() []AllCartsData {
-	hds.mu.RLock()
-	defer hds.mu.RUnlock()
-
-	result := make([]AllCartsData, len(hds.data))
-	copy(result, hds.data)
-	return result
-}
-
-// Clear removes all historical data (used on fresh connections)
-func (hds *HistoricalDataStore) Clear() {
-	hds.mu.Lock()
-	defer hds.mu.Unlock()
-	hds.data = hds.data[:0]
-}
-
-// Global historical data store
-var historicalStore *HistoricalDataStore
 
 // Upgrader is used to upgrade HTTP connections to WebSocket connections.
 var upgrader = websocket.Upgrader{
@@ -119,9 +66,51 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-func wsHandler(w http.ResponseWriter, r *http.Request, c <-chan AllCartsData, controllerGoalChannels []chan<- float64, randomControlChannel chan<- ControlMessage) {
-	// Clear historical data on fresh connection
-	historicalStore.Clear()
+func handleScenarioMessage(msgType string, rawMsg map[string]interface{}, scenarioManager *ScenarioManager, responseChannel chan<- ScenarioMessage) {
+	switch msgType {
+	case "list_scenarios":
+		// Send list of available scenarios
+		scenarios := scenarioManager.GetScenarios()
+		response := ScenarioMessage{
+			Type: "scenario_list",
+			Data: scenarios,
+		}
+		responseChannel <- response
+
+	case "run_scenario":
+		// Run a specific scenario
+		if scenarioName, ok := rawMsg["scenario"].(string); ok {
+			go func() {
+				err := scenarioManager.RunScenario(scenarioName)
+				status := "completed"
+				if err != nil {
+					status = "failed"
+				}
+
+				response := ScenarioMessage{
+					Type: "scenario_result",
+					Data: map[string]interface{}{
+						"scenario": scenarioName,
+						"status":   status,
+						"error":    err,
+					},
+				}
+				responseChannel <- response
+			}()
+		}
+
+	case "scenario_status":
+		// Send current scenario statuses
+		scenarios := scenarioManager.GetScenarios()
+		response := ScenarioMessage{
+			Type: "scenario_list",
+			Data: scenarios,
+		}
+		responseChannel <- response
+	}
+}
+
+func wsHandler(w http.ResponseWriter, r *http.Request, c <-chan AllCartsData, scenarioManager *ScenarioManager) {
 
 	// Upgrade the HTTP connection to a WebSocket connection
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -131,93 +120,180 @@ func wsHandler(w http.ResponseWriter, r *http.Request, c <-chan AllCartsData, co
 	}
 	defer conn.Close()
 
+	// Create a channel for scenario responses
+	scenarioResponseChannel := make(chan ScenarioMessage, 10)
+
 	// Start a goroutine to handle incoming messages from the client
 	go func() {
+		// will this fix the panic: send on closed channel?
 		for {
-			var msg ControlMessage
-			err := conn.ReadJSON(&msg)
+			// Read raw message to determine type
+			_, msgBytes, err := conn.ReadMessage()
 			if err != nil {
 				fmt.Println("Error reading from WebSocket:", err)
 				return
 			}
 
+			// Try to parse as different message types
+			var rawMsg map[string]interface{}
+			if err := json.Unmarshal(msgBytes, &rawMsg); err != nil {
+				fmt.Println("Error parsing message:", err)
+				continue
+			}
+
+			// Check if it's a test message
+			if msgType, ok := rawMsg["type"].(string); ok {
+				// Check if it's a scenario message
+				handleScenarioMessage(msgType, rawMsg, scenarioManager, scenarioResponseChannel)
+				continue
+			}
+
+			// Otherwise, treat as control message
+			var msg ControlMessage
+			if err := json.Unmarshal(msgBytes, &msg); err != nil {
+				fmt.Println("Error parsing control message:", err)
+				continue
+			}
+
 			// Process the control message
 			switch msg.Command {
 			case "setGoal":
-				if msg.Controller >= 0 && msg.Controller < len(controllerGoalChannels) {
+				if msg.Controller >= 0 && msg.Controller < len(scenarioManager.goalChannels) {
 					fmt.Printf("Frontend: Setting goal for cart %d to %f\n", msg.Controller+1, msg.Position)
-					controllerGoalChannels[msg.Controller] <- msg.Position
+					scenarioManager.goalChannels[msg.Controller] <- msg.Position
+				}
+			case "emergencyStop":
+				if msg.Controller >= 0 && msg.Controller < len(scenarioManager.emergencyStops) {
+					fmt.Printf("Frontend: Emergency stop for cart %d\n", msg.Controller+1)
+					scenarioManager.emergencyStops[msg.Controller] <- true
 				}
 			case "randomGoals":
 				fmt.Printf("Frontend: %s random goal generation\n", map[bool]string{true: "Starting", false: "Stopping"}[msg.Enabled])
-				randomControlChannel <- msg
+				scenarioManager.randomControlChannel <- msg
 			}
 		}
 	}()
 
-	// send every value from the provided channel to the WebSocket client
-	for value := range c {
-		err := conn.WriteJSON(value)
-		if err != nil {
-			fmt.Println("Error writing to WebSocket:", err)
-			return
+	// Handle both cart data and scenario responses
+	for {
+		select {
+		case value, ok := <-c:
+			if !ok {
+				return
+			}
+			err := conn.WriteJSON(value)
+			if err != nil {
+				fmt.Println("Error writing cart data to WebSocket:", err)
+				return
+			}
+		case scenarioResponse, ok := <-scenarioResponseChannel:
+			if !ok {
+				return
+			}
+			err := conn.WriteJSON(scenarioResponse)
+			if err != nil {
+				fmt.Println("Error writing scenario response to WebSocket:", err)
+				return
+			}
 		}
-	}
-}
-
-// historicalDataHandler serves historical data as JSON
-func historicalDataHandler(w http.ResponseWriter, r *http.Request) {
-	// Set CORS headers
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-	w.Header().Set("Content-Type", "application/json")
-
-	// Handle preflight requests
-	if r.Method == "OPTIONS" {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	if r.Method != "GET" {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	data := historicalStore.GetHistoricalData()
-
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		fmt.Printf("Error encoding historical data: %v\n", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
 	}
 }
 
 // collectCartData collects the current data from a controller
 func collectCartData(controller *Controller) SocketData {
+	// Calculate trajectory phase transition timestamps and phase labels
+	var trajectoryTransitions []string
+	var trajectoryPhases []string
+
+	// Map phase indices to phase names
+	phaseNames := []string{
+		"Increasing deceleration", // 0
+		"Constant deceleration",   // 1
+		"Decreasing deceleration", // 2
+		"Increasing acceleration", // 3
+		"Constant acceleration",   // 4
+		"Decreasing acceleration", // 5
+		"Constant velocity",       // 6
+		"Increasing deceleration", // 7
+		"Constant deceleration",   // 8
+		"Decreasing deceleration", // 9
+		"Final state",             // 10
+	}
+
+	if controller.CurrentTrajectory != nil {
+		// Add t0 (trajectory start time) as the first transition
+		trajectoryTransitions = append(trajectoryTransitions, controller.CurrentTrajectory.t0.UTC().Format(time.RFC3339Nano))
+		trajectoryPhases = append(trajectoryPhases, "Start")
+
+		// Add phase transition times and corresponding phase names
+		for i, state := range controller.CurrentTrajectory.state {
+			if state.t > 0 { // Only include actual phase transitions
+				transitionTime := controller.CurrentTrajectory.t0.Add(time.Duration(state.t * float64(time.Second)))
+				trajectoryTransitions = append(trajectoryTransitions, transitionTime.UTC().Format(time.RFC3339Nano))
+
+				// Determine phase name based on trajectory type and index
+				if controller.CurrentTrajectory.isStopping {
+					// For stopping trajectories, phases start from index 0
+					if i < len(phaseNames) {
+						trajectoryPhases = append(trajectoryPhases, phaseNames[i])
+					} else {
+						trajectoryPhases = append(trajectoryPhases, "Unknown")
+					}
+				} else {
+					// For point-to-point trajectories, phases start from index 3
+					phaseIndex := i + 3
+					if phaseIndex < len(phaseNames) {
+						trajectoryPhases = append(trajectoryPhases, phaseNames[phaseIndex])
+					} else {
+						trajectoryPhases = append(trajectoryPhases, "Unknown")
+					}
+				}
+			}
+		}
+	}
+
+	// Handle potential nil trajectory for chart data
+	var chartPosition, chartVelocity, chartAcceleration, chartJerk, goal float64
+	if controller.CurrentTrajectory != nil {
+		chartPosition = controller.CurrentTrajectory.GetCurrentPosition()
+		chartVelocity = controller.CurrentTrajectory.GetCurrentVelocity()
+		chartAcceleration = controller.CurrentTrajectory.GetCurrentAcceleration()
+		chartJerk = controller.CurrentTrajectory.GetCurrentJerk()
+		goal = controller.CurrentTrajectory.end
+	}
+
 	return SocketData{
 		Id: controller.Cart.Id,
 
 		// Chart data (planned trajectory values from MovementPlanner)
-		ChartPosition:     controller.CurrentTrajectory.GetCurrentPosition(),
-		ChartVelocity:     controller.CurrentTrajectory.GetCurrentVelocity(),
-		ChartAcceleration: controller.CurrentTrajectory.GetCurrentAcceleration(),
-		ChartJerk:         controller.CurrentTrajectory.GetCurrentJerk(),
+		ChartPosition:     chartPosition,
+		ChartVelocity:     chartVelocity,
+		ChartAcceleration: chartAcceleration,
+		ChartJerk:         chartJerk,
 
 		// Real-time data (actual cart physics values)
 		Position: controller.Cart.Position,
 
 		LeftBorder:  controller.LeftBorderTrajectory.GetCurrentPosition(),
 		RightBorder: controller.RightBorderTrajectory.GetCurrentPosition(),
-		Goal:        controller.CurrentTrajectory.end,
+		Goal:        goal,
 		Setpoint:    controller.PositionPID.Setpoint,
 		State:       controller.State.String(),
+
+		// Trajectory phase transitions (timestamps when trajectory phases change)
+		TrajectoryTransitions: trajectoryTransitions,
+
+		// Trajectory phase information (phase labels corresponding to transitions)
+		TrajectoryPhases: trajectoryPhases,
+
+		// Performance metrics
+		Metrics: controller.Metrics.GetDetailedMetrics(),
 	}
 }
 
-func startWebsocketServer(controllers []*Controller, controllerGoalChannels []chan<- float64, randomControlChannel chan<- ControlMessage) {
-	// Initialize the historical data store (keep 5 minutes of data at 30Hz = 9000 points max)
-	historicalStore = NewHistoricalDataStore(5*time.Minute, 9000)
+func startWebsocketServer(scenarioManager *ScenarioManager) {
+
+	// Use the provided scenario manager
 
 	// Create a channel for broadcasting data
 	dataChannel := make(chan AllCartsData, 100)
@@ -232,18 +308,20 @@ func startWebsocketServer(controllers []*Controller, controllerGoalChannels []ch
 			var cartsData []SocketData
 			timestamp := time.Now().UTC().Format(time.RFC3339Nano)
 
-			for _, controller := range controllers {
-				data := collectCartData(controller)
-				cartsData = append(cartsData, data)
+			// Use scenario manager's current controllers (which may be fewer than the original)
+			if scenarioManager.controllers != nil {
+				for _, controller := range scenarioManager.controllers {
+					if controller != nil {
+						data := collectCartData(controller)
+						cartsData = append(cartsData, data)
+					}
+				}
 			}
 
 			allCartsData := AllCartsData{
 				Carts:     cartsData,
 				Timestamp: timestamp,
 			}
-
-			// Store data point in historical store
-			historicalStore.AddDataPoint(allCartsData)
 
 			select {
 			case dataChannel <- allCartsData:
@@ -256,7 +334,7 @@ func startWebsocketServer(controllers []*Controller, controllerGoalChannels []ch
 
 	// Register HTTP handlers
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		wsHandler(w, r, dataChannel, controllerGoalChannels, randomControlChannel)
+		wsHandler(w, r, dataChannel, scenarioManager)
 	})
 	// http.HandleFunc("/api/historical-data", historicalDataHandler)
 

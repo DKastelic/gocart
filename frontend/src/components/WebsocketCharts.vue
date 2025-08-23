@@ -11,7 +11,7 @@
                     borderColor: currentThemeConfig.chartControlBorder
                 }"
             >
-                <h3 :style="{ color: currentThemeConfig.chartControlTitleColor }">Cart Visibility</h3>
+                <h3 :style="{ color: currentThemeConfig.chartControlTitleColor }">Vidnost agentov</h3>
                 <div class="cart-checkboxes">
                     <label 
                         v-for="cartId in numColumns" 
@@ -24,7 +24,22 @@
                             v-model="cartVisibility[cartId]"
                             @change="updateVisibility"
                         />
-                        <span>Cart {{ cartId }}</span>
+                        <span>Agent {{ cartId }}</span>
+                    </label>
+                </div>
+                
+                <h3 :style="{ color: currentThemeConfig.chartControlTitleColor }">Prehodi trajektorije</h3>
+                <div class="cart-checkboxes">
+                    <label 
+                        class="cart-checkbox"
+                        :style="{ color: currentThemeConfig.chartControlTextColor }"
+                    >
+                        <input 
+                            type="checkbox" 
+                            v-model="showTrajectoryTransitions"
+                            @change="updateVisibility"
+                        />
+                        <span>Prikaži prehode faz</span>
                     </label>
                 </div>
             </div>
@@ -37,6 +52,7 @@
                     :data="allCartsData" 
                     :num_carts="numColumns"
                     :cart_visibility="cartVisibility"
+                    :show_trajectory_transitions="showTrajectoryTransitions"
                 />
             </div>
         </div>
@@ -46,7 +62,7 @@
 <script setup lang="ts">
 import { ref, reactive, watch } from 'vue';
 import CombinedChart from './CombinedChart.vue';
-import { useWebSocket, type SocketData, type AllCartsData } from '@/state';
+import { useWebSocket, type AllCartsData } from '@/state';
 import { useTheme } from '@/composables/useTheme';
 
 const { currentThemeConfig } = useTheme();
@@ -60,12 +76,15 @@ const { latestData } = useWebSocket();
 // Initialize cart visibility - only Cart 1 enabled by default
 const cartVisibility = reactive<Record<number, boolean>>({});
 
+// Initialize trajectory transitions visibility
+const showTrajectoryTransitions = ref(false);
+
 // Function to update cart visibility based on the number of carts
 function updateCartVisibility(numCarts: number) {
-  // Add new carts (disabled by default, except Cart 1)
+  // Add new carts
   for (let i = 1; i <= numCarts; i++) {
     if (!(i in cartVisibility)) {
-      cartVisibility[i] = i === 1; // Only Cart 1 is enabled by default
+      cartVisibility[i] = true;
     }
   }
   
@@ -105,10 +124,10 @@ watch(latestData, (newData) => {
 
 function getChartTitle(type: typeof chartTypes[number]): string {
   const titles: Record<typeof chartTypes[number], string> = {
-    chartPosition: 'Position - All Carts',
-    chartVelocity: 'Velocity - All Carts',
-    chartAcceleration: 'Acceleration - All Carts',
-    chartJerk: 'Jerk - All Carts'
+    chartPosition: 'Pozicija',
+    chartVelocity: 'Hitrost',
+    chartAcceleration: 'Pospešek',
+    chartJerk: 'Trzaj'
   };
   return titles[type];
 }
@@ -177,61 +196,5 @@ function getChartTitle(type: typeof chartTypes[number]): string {
   width: 100%;
   min-height: 750px;
   flex: 1;
-}
-
-/* Responsive adjustments */
-@media (max-width: 1400px) {
-  .charts-grid {
-    grid-template-columns: 1fr;
-    grid-template-rows: repeat(4, 1fr);
-    min-height: 1500px;
-  }
-}
-
-@media (max-width: 1200px) {
-  .content-layout {
-    flex-direction: column;
-    gap: 15px;
-  }
-  
-  .cart-controls {
-    width: 100%;
-  }
-  
-  .cart-checkboxes {
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 15px;
-  }
-}
-
-@media (max-width: 900px) {
-  .charts-container {
-    padding: 15px;
-  }
-  
-  .charts-grid {
-    gap: 15px;
-    min-height: 1200px;
-  }
-  
-  .cart-controls {
-    padding: 10px;
-  }
-}
-
-@media (max-width: 600px) {
-  .charts-container {
-    padding: 10px;
-  }
-  
-  .charts-grid {
-    gap: 10px;
-    min-height: 1000px;
-  }
-  
-  .cart-controls h3 {
-    font-size: 14px;
-  }
 }
 </style>

@@ -3,12 +3,14 @@ import { ref } from 'vue';
 import WebsocketCharts from './components/WebsocketCharts.vue';
 import CartVisualization from './components/CartVisualization.vue';
 import ControlPanel from './components/ControlPanel.vue';
+import TestPanel from './components/TestPanel.vue';
+import MetricsPanel from './components/MetricsPanel.vue';
 import { useTheme } from './composables/useTheme';
 
-const activeTab = ref<'visualization' | 'charts'>('visualization');
+const activeTab = ref<'visualization' | 'charts' | 'metrics'>('visualization');
 const { theme, toggleTheme, currentThemeConfig } = useTheme();
 
-function setActiveTab(tab: 'visualization' | 'charts') {
+function setActiveTab(tab: 'visualization' | 'charts' | 'metrics') {
   activeTab.value = tab;
 }
 </script>
@@ -24,8 +26,8 @@ function setActiveTab(tab: 'visualization' | 'charts') {
       borderBottomColor: currentThemeConfig.headerBorder 
     }">
       <div class="header-content">
-        <h1 class="app-title" :style="{ color: currentThemeConfig.titleColor }">Dashboard</h1>
-        
+        <h1 class="app-title" :style="{ color: currentThemeConfig.titleColor }">Spletna aplikacija</h1>
+
         <!-- Theme Toggle Button -->
         <button 
           @click="toggleTheme" 
@@ -37,7 +39,7 @@ function setActiveTab(tab: 'visualization' | 'charts') {
           }"
           :title="`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`"
         >
-          {{ theme === 'light' ? 'dark theme' : 'light theme' }}
+          {{ theme === 'light' ? 'temna barva' : 'svetla barva' }}
         </button>
       </div>
       
@@ -53,7 +55,7 @@ function setActiveTab(tab: 'visualization' | 'charts') {
             color: activeTab === 'visualization' ? currentThemeConfig.tabActiveColor : currentThemeConfig.tabColor
           }"
         >
-          Visualization
+          Vizualizacija
         </button>
         <button 
           class="tab-button" 
@@ -65,7 +67,19 @@ function setActiveTab(tab: 'visualization' | 'charts') {
             color: activeTab === 'charts' ? currentThemeConfig.tabActiveColor : currentThemeConfig.tabColor
           }"
         >
-          Charts
+          Grafi
+        </button>
+        <button 
+          class="tab-button" 
+          :class="{ active: activeTab === 'metrics' }"
+          @click="setActiveTab('metrics')"
+          :style="{ 
+            backgroundColor: activeTab === 'metrics' ? currentThemeConfig.tabActiveBackground : currentThemeConfig.tabBackground,
+            borderColor: currentThemeConfig.tabBorder,
+            color: activeTab === 'metrics' ? currentThemeConfig.tabActiveColor : currentThemeConfig.tabColor
+          }"
+        >
+          Metrike
         </button>
       </nav>
     </header>
@@ -98,6 +112,18 @@ function setActiveTab(tab: 'visualization' | 'charts') {
           >
             <WebsocketCharts />
           </section>
+
+          <!-- Metrics Tab -->
+          <section 
+            v-if="activeTab === 'metrics'" 
+            class="content-section"
+            :style="{ 
+              backgroundColor: currentThemeConfig.contentBackground, 
+              borderColor: currentThemeConfig.contentBorder 
+            }"
+          >
+            <MetricsPanel />
+          </section>
         </div>
 
         <!-- Control Panel Sidebar -->
@@ -109,6 +135,7 @@ function setActiveTab(tab: 'visualization' | 'charts') {
           }"
         >
           <ControlPanel />
+          <TestPanel />
         </div>
       </div>
     </main>
@@ -195,7 +222,7 @@ function setActiveTab(tab: 'visualization' | 'charts') {
 }
 
 .sidebar {
-  width: 300px;
+  width: 350px;
   border-left: 1px solid;
   overflow-y: auto;
   flex-shrink: 0;

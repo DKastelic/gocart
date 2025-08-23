@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func input_loop(controllerGoalChannels []chan<- float64, exit_channel chan struct{}, randomControlChannel chan<- ControlMessage) {
+func input_loop(scenarioManager *ScenarioManager, exit_channel chan struct{}, randomControlChannel chan<- ControlMessage) {
 	in := bufio.NewReader(os.Stdin)
 
 	fmt.Println("Usage: \n" +
@@ -42,7 +42,7 @@ func input_loop(controllerGoalChannels []chan<- float64, exit_channel chan struc
 			fmt.Printf("Setting goal for controller %s to position %s\n", controllerIndex,
 				goalPosition)
 			controllerIndexInt, err := strconv.Atoi(controllerIndex)
-			if err != nil || controllerIndexInt < 1 || controllerIndexInt >= len(controllerGoalChannels)+1 {
+			if err != nil || controllerIndexInt < 1 || controllerIndexInt >= len(scenarioManager.goalChannels)+1 {
 				fmt.Println("Invalid controller index:", controllerIndex)
 				continue
 			}
@@ -51,7 +51,7 @@ func input_loop(controllerGoalChannels []chan<- float64, exit_channel chan struc
 				fmt.Println("Invalid goal position:", goalPosition)
 				continue
 			}
-			controllerGoalChannels[controllerIndexInt-1] <- goalPositionFloat
+			scenarioManager.goalChannels[controllerIndexInt-1] <- goalPositionFloat
 
 		case "random":
 			if len(words) < 2 {
