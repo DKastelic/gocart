@@ -171,8 +171,8 @@ func NewController(cart *Cart, leftBorder, rightBorder float64) *Controller {
 
 	return &Controller{
 		Cart:                  cart,
-		VelocityPID:           NewPID(150, 0, 0, 0.01),
-		PositionPID:           NewPID(100, 0, 0, 0.01),
+		VelocityPID:           NewPID(150, 10, 0, 0.01, 150),
+		PositionPID:           NewPID(100, 0, 0, 0.01, 300),
 		MovementPlanner:       movementPlanner,
 		safetyMargin:          30,
 		Metrics:               NewMessageMetrics(), // Initialize metrics tracking

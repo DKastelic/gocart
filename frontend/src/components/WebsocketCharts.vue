@@ -27,8 +27,8 @@
                         <span>Agent {{ cartId }}</span>
                     </label>
                 </div>
-                
-                <h3 :style="{ color: currentThemeConfig.chartControlTitleColor }">Prehodi trajektorije</h3>
+
+                <h3 :style="{ color: currentThemeConfig.chartControlTitleColor, padding: '15px 0 0 0' }">Prehodi faz</h3>
                 <div class="cart-checkboxes">
                     <label 
                         class="cart-checkbox"
@@ -194,7 +194,6 @@ function getChartTitle(type: typeof chartTypes[number]): string {
   grid-template-rows: 1fr 1fr;
   gap: 10px;
   width: 100%;
-  min-height: 750px;
   flex: 1;
 }
 </style>

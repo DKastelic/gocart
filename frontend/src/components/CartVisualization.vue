@@ -35,6 +35,8 @@ let animationId: number | null = null;
 // Use the shared cart data map instead of local storage
 const { cartDataMap } = useWebSocket();
 
+const legend_scale = 1.5;
+
 // Approximate cart dimensions (these should ideally come from the backend)
 const CART_WIDTH = 50;
 const CART_HEIGHT = 40;
@@ -70,7 +72,7 @@ function drawCart(cartData: SocketData) {
   
   // Draw cart ID on top
   ctx.fillStyle = currentThemeConfig.value.canvasTextColor;
-  ctx.font = '12px Arial';
+  ctx.font = `${legend_scale * 24}px Arial`;
   ctx.textAlign = 'center';
   ctx.fillText(cartData.id.toString(), cartData.position * scale_x, y - 5);
 }
@@ -140,11 +142,11 @@ function drawRail() {
 function drawLegend() {
   if (!ctx) return;
   
-  const legendX = 20;
-  const legendY = 20;
-  const legendItemHeight = 25;
-  
-  ctx.font = '14px Arial';
+  const legendX = 40 * legend_scale;
+  const legendY = 30 * legend_scale;
+  const legendItemHeight = 40 * legend_scale;
+
+  ctx.font = `${legend_scale * 24}px Arial`;
   ctx.textAlign = 'left';
   
   // Title
@@ -163,22 +165,22 @@ function drawLegend() {
   
   states.forEach((state, index) => {
     if (!ctx) return;
-    
-    const y = legendY + 20 + (index * legendItemHeight);
-    
+
+    const y = legendY + 30 * legend_scale + (index * legendItemHeight);
+
     // Color box (make it a circle)
     ctx.fillStyle = state.color;
     ctx.beginPath();
-    ctx.arc(legendX + 7, y - 4, 7, 0, 2 * Math.PI);
+    ctx.arc(legendX + 7, y - 8, 7 * legend_scale, 0, 2 * Math.PI);
     ctx.fill();
     
     // Text
     ctx.fillStyle = currentThemeConfig.value.canvasLegendColor;
-    ctx.fillText(state.name, legendX + 20, y);
+    ctx.fillText(state.name, legendX + 20 * legend_scale, y);
   });
   
   // Add indicators section
-  const indicatorsY = legendY + 20 + (states.length * legendItemHeight) + 20;
+  const indicatorsY = legendY + 30 * legend_scale + (states.length * legendItemHeight) + 40 * legend_scale;
   ctx.fillStyle = currentThemeConfig.value.canvasLegendColor;
   ctx.fillText('Indikatorji:', legendX, indicatorsY);
   
@@ -190,18 +192,18 @@ function drawLegend() {
   
   indicators.forEach((indicator, index) => {
     if (!ctx) return;
-    
-    const y = indicatorsY + 20 + (index * legendItemHeight);
-    
+
+    const y = indicatorsY + 30 * legend_scale + (index * legendItemHeight);
+
     // Color box (make it a circle)
     ctx.fillStyle = indicator.color;
     ctx.beginPath();
-    ctx.arc(legendX + 7, y - 4, 7, 0, 2 * Math.PI);
+    ctx.arc(legendX + 7, y - 8, 7 * legend_scale, 0, 2 * Math.PI);
     ctx.fill();
     
     // Text
     ctx.fillStyle = currentThemeConfig.value.canvasLegendColor;
-    ctx.fillText(indicator.name, legendX + 20, y);
+    ctx.fillText(indicator.name, legendX + 20 * legend_scale, y);
   });
 }
 

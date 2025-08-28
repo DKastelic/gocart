@@ -8,10 +8,15 @@ import MetricsPanel from './components/MetricsPanel.vue';
 import { useTheme } from './composables/useTheme';
 
 const activeTab = ref<'visualization' | 'charts' | 'metrics'>('visualization');
+const sidebarVisible = ref(true);
 const { theme, toggleTheme, currentThemeConfig } = useTheme();
 
 function setActiveTab(tab: 'visualization' | 'charts' | 'metrics') {
   activeTab.value = tab;
+}
+
+function toggleSidebar() {
+  sidebarVisible.value = !sidebarVisible.value;
 }
 </script>
 
@@ -28,8 +33,22 @@ function setActiveTab(tab: 'visualization' | 'charts' | 'metrics') {
       <div class="header-content">
         <h1 class="app-title" :style="{ color: currentThemeConfig.titleColor }">Spletna aplikacija</h1>
 
-        <!-- Theme Toggle Button -->
+        <!-- Sidebar Toggle Button -->
         <button 
+          @click="toggleSidebar" 
+          class="sidebar-toggle"
+          :style="{ 
+            backgroundColor: currentThemeConfig.buttonBackground,
+            borderColor: currentThemeConfig.buttonBorder,
+            color: currentThemeConfig.buttonColor
+          }"
+          :title="sidebarVisible ? 'Skrij stranski panel' : 'Prikaži stranski panel'"
+        >
+          {{ sidebarVisible ? '▶' : '◀' }}
+        </button>
+
+        <!-- Theme Toggle Button -->
+        <!-- <button 
           @click="toggleTheme" 
           class="theme-toggle"
           :style="{ 
@@ -40,7 +59,7 @@ function setActiveTab(tab: 'visualization' | 'charts' | 'metrics') {
           :title="`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`"
         >
           {{ theme === 'light' ? 'temna barva' : 'svetla barva' }}
-        </button>
+        </button> -->
       </div>
       
       <!-- Tab Navigation -->
@@ -129,6 +148,7 @@ function setActiveTab(tab: 'visualization' | 'charts' | 'metrics') {
         <!-- Control Panel Sidebar -->
         <div 
           class="sidebar"
+          :class="{ 'sidebar-hidden': !sidebarVisible }"
           :style="{ 
             backgroundColor: currentThemeConfig.sidebarBackground, 
             borderLeftColor: currentThemeConfig.sidebarBorder 
@@ -186,6 +206,22 @@ function setActiveTab(tab: 'visualization' | 'charts' | 'metrics') {
   transform: scale(1.05);
 }
 
+.sidebar-toggle {
+  border: 1px solid;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.2s ease;
+  min-width: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-toggle:hover {
+  opacity: 0.8;
+  transform: scale(1.05);
+}
+
 .tab-navigation {
   display: flex;
   justify-content: center;
@@ -226,6 +262,15 @@ function setActiveTab(tab: 'visualization' | 'charts' | 'metrics') {
   border-left: 1px solid;
   overflow-y: auto;
   flex-shrink: 0;
+  transition: all 0.3s ease;
+  transform: translateX(0);
+}
+
+.sidebar-hidden {
+  width: 0;
+  border-left: none;
+  overflow: hidden;
+  transform: translateX(100%);
 }
 
 .content-section {

@@ -22,12 +22,13 @@ type PID struct {
 }
 
 // NewPID creates a new PID controller
-func NewPID(kp, ki, kd, sampleTime float64) *PID {
+func NewPID(kp, ki, kd, sampleTime, maxOutput float64) *PID {
 	return &PID{
 		Kp:         kp,
 		Ki:         ki,
 		Kd:         kd,
 		SampleTime: sampleTime,
+		MaxOutput:  maxOutput,
 	}
 }
 
@@ -45,6 +46,13 @@ func (pid *PID) Update(input float64) float64 {
 	// Calculate the output
 	pid.Output = pid.Kp*err + pid.Ki*pid.Integral + pid.Kd*derivative
 
+	// Clamp the output to the maximum and minimum values
+	if pid.Output > pid.MaxOutput {
+		pid.Output = pid.MaxOutput
+	} else if pid.Output < -pid.MaxOutput {
+		pid.Output = -pid.MaxOutput
+	}
+
 	// Update the previous error
 	pid.PreviousError = err
 
@@ -54,5 +62,5 @@ func (pid *PID) Update(input float64) float64 {
 // SetSetpoint sets the setpoint of the PID controller
 func (pid *PID) SetSetpoint(setpoint float64) {
 	pid.Setpoint = setpoint
-	pid.PreviousError = 0
+	// pid.PreviousError = 0
 }

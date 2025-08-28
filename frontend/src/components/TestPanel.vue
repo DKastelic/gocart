@@ -35,7 +35,7 @@
         >
           <div class="scenario-header">
             <div class="scenario-info">
-              <span class="scenario-name">{{ formatScenarioName(scenario.name) }}</span>
+              <span class="scenario-name">{{ scenario.name }}</span>
               <!-- <span class="scenario-description">{{ scenario.description }}</span> -->
             </div>
             <div class="scenario-controls">
@@ -111,12 +111,6 @@ function refreshScenarios() {
   
   console.log('Refreshing scenarios');
   listScenariosAction();
-}
-
-function formatScenarioName(name: string): string {
-  return name
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, l => l.toUpperCase());
 }
 
 // Lifecycle

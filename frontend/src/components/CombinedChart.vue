@@ -6,7 +6,7 @@
       borderColor: currentThemeConfig.chartBorder
     }"
   >
-    <v-chart :option="chartOptions" />
+    <v-chart :option="chartOptions" class="chart" />
   </div>
 </template>
 
@@ -68,7 +68,8 @@ const chartOptions = ref({
     data: [] as string[],
     top: 30,
     textStyle: {
-      color: ''
+      color: '',
+      fontSize: 10
     }
   },
   xAxis: {
@@ -101,7 +102,8 @@ const chartOptions = ref({
     },
     axisLabel: {
       color: '',
-      formatter: '{value} ' + (unitMap[props.value_type] || '')
+      formatter: (value: number) =>  (value + " " + (unitMap[props.value_type] || '')).replace(".", ","),
+      // hideOverlap: true,
     },
     splitLine: {
       lineStyle: {
@@ -111,6 +113,14 @@ const chartOptions = ref({
   },
   series: [] as any[],
   animation: false,
+  renderer: "svg",
+  grid: {
+    left: '2%',
+    right: '8%', 
+    bottom: '5%',
+    top: '30%', 
+    containLabel: true
+  },
 })
 
 // Function to update chart colors based on current theme
@@ -388,13 +398,9 @@ watch(() => props.data, (newData) => {
 <style scoped>
 .combined-chart {
   width: 100%;
-  height: 290px;
+  height: 100%;
+  max-height: 500px;
   border: 1px solid;
   padding: 10px;
-  transition: all 0.2s ease;
-}
-
-.combined-chart:hover {
-  opacity: 0.9;
 }
 </style>

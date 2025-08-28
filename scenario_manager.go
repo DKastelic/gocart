@@ -60,28 +60,28 @@ type ScenarioManager struct {
 func NewScenarioManager(controllers []*Controller, goalChannels []chan<- float64, emergencyStops []chan<- bool, carts []Cart, randomControlChannel chan ControlMessage, controllerCompletionChannels []<-chan bool) *ScenarioManager {
 	scenarios := []CoordinationScenario{
 		// Default scenario (original 4-cart setup)
-		{Name: "default", Description: "Default 4-cart configuration for general testing", Status: "idle", Category: "multi_agent"},
+		{Name: "Privzeti scenarij", Description: "Default 4-cart configuration for general testing", Status: "idle", Category: "multi_agent"},
 
 		// Single Agent Scenarios
-		{Name: "simple_move", Description: "Agent receives a goal within its borders and moves to it", Status: "idle", Category: "single"},
-		{Name: "simple_reject", Description: "Agent receives a goal outside its borders (no neighbor present) and rejects it", Status: "idle", Category: "single"},
-		{Name: "stop_movement", Description: "While moving towards a valid goal, the agent receives a stop request and halts as quickly as possible", Status: "idle", Category: "single"},
-		{Name: "change_goal_mid_movement", Description: "Agent starts moving towards one goal, then receives a new goal mid movement", Status: "idle", Category: "single"},
+		{Name: "Preprost premik", Description: "Agent receives a goal within its borders and moves to it", Status: "idle", Category: "single"},
+		{Name: "Zavrnjen cilj", Description: "Agent receives a goal outside its borders (no neighbor present) and rejects it", Status: "idle", Category: "single"},
+		{Name: "Ustavitev gibanja", Description: "While moving towards a valid goal, the agent receives a stop request and halts as quickly as possible", Status: "idle", Category: "single"},
+		{Name: "Sprememba cilja med gibanjem", Description: "Agent starts moving towards one goal, then receives a new goal mid movement", Status: "idle", Category: "single"},
 
 		// Two Agent Scenarios
-		{Name: "border_move", Description: "Agent requests a goal that requires the neighbor to shift its border but not vacate", Status: "idle", Category: "two_agent"},
-		{Name: "neighbor_move", Description: "Agent requests a goal requiring the neighbor to both move the border and relocate itself", Status: "idle", Category: "two_agent"},
-		{Name: "postponed_request", Description: "Agent requests a goal while the neighbor is busy and must wait", Status: "idle", Category: "two_agent"},
-		{Name: "crossed_goals", Description: "Both agents simultaneously request goals requiring the other to move", Status: "idle", Category: "two_agent"},
-		{Name: "overridden_goal", Description: "While moving, an agent receives a neighbor's request to vacate space", Status: "idle", Category: "two_agent"},
-		{Name: "change_of_plans", Description: "Neighbor changes to a new goal mid-avoidance, requiring further coordination", Status: "idle", Category: "two_agent"},
+		{Name: "Premik meje", Description: "Agent requests a goal that requires the neighbor to shift its border but not vacate", Status: "idle", Category: "two_agent"},
+		{Name: "Umik soseda", Description: "Agent requests a goal requiring the neighbor to both move the border and relocate itself", Status: "idle", Category: "two_agent"},
+		{Name: "Odložena zahteva", Description: "Agent requests a goal while the neighbor is busy and must wait", Status: "idle", Category: "two_agent"},
+		{Name: "Navzkrižni cilji", Description: "Both agents simultaneously request goals requiring the other to move", Status: "idle", Category: "two_agent"},
+		{Name: "Prekinjen cilj", Description: "While moving, an agent receives a neighbor's request to vacate space", Status: "idle", Category: "two_agent"},
+		{Name: "Prekinjeno umikanje", Description: "Neighbor changes to a new goal mid-avoidance, requiring further coordination", Status: "idle", Category: "two_agent"},
 
 		// Three Agent Scenarios
-		{Name: "chained_requests", Description: "Agent requests a goal in the third agent's territory, requiring multi-hop negotiation", Status: "idle", Category: "three_agent"},
-		{Name: "too_far", Description: "Agent requests a goal beyond the collective reachable space, and the farthest agent rejects it", Status: "idle", Category: "three_agent"},
-		{Name: "unreliable_network", Description: "Chained requests with packet loss - system must converge without collision", Status: "idle", Category: "three_agent"},
-		{Name: "slow_network", Description: "Chained requests with high latency - agents must handle delayed responses safely", Status: "idle", Category: "three_agent"},
-		{Name: "concurrent_chained_requests", Description: "Two agents simultaneously initiate requests requiring the middle agent to cooperate", Status: "idle", Category: "three_agent"},
+		{Name: "Verižne zahteve", Description: "Agent requests a goal in the third agent's territory, requiring multi-hop negotiation", Status: "idle", Category: "three_agent"},
+		{Name: "Nedosegljiv cilj", Description: "Agent requests a goal beyond the collective reachable space, and the farthest agent rejects it", Status: "idle", Category: "three_agent"},
+		{Name: "Nezanesljivo omrežje", Description: "Chained requests with packet loss - system must converge without collision", Status: "idle", Category: "three_agent"},
+		{Name: "Počasno omrežje", Description: "Chained requests with high latency - agents must handle delayed responses safely", Status: "idle", Category: "three_agent"},
+		{Name: "Navzkrižni cilji z vmesnim agentom", Description: "Two agents simultaneously initiate requests requiring the middle agent to cooperate", Status: "idle", Category: "three_agent"},
 	}
 
 	var activeCartCount, originalCartCount int
@@ -285,43 +285,43 @@ func (sm *ScenarioManager) RunScenario(scenarioName string) error {
 	var err error
 	switch scenarioName {
 	// Default scenario
-	case "default":
+	case "Privzeti scenarij":
 		err = sm.runDefault()
 
 	// Single Agent Scenarios
-	case "simple_move":
+	case "Preprost premik":
 		err = sm.runSimpleMove()
-	case "simple_reject":
+	case "Zavrnjen cilj":
 		err = sm.runSimpleReject()
-	case "stop_movement":
+	case "Ustavitev gibanja":
 		err = sm.runStopMovement()
-	case "change_goal_mid_movement":
+	case "Sprememba cilja med gibanjem":
 		err = sm.runChangeGoalMidMovement()
 
 	// Two Agent Scenarios
-	case "border_move":
+	case "Premik meje":
 		err = sm.runBorderMove()
-	case "neighbor_move":
+	case "Umik soseda":
 		err = sm.runNeighborMove()
-	case "postponed_request":
+	case "Odložena zahteva":
 		err = sm.runPostponedRequest()
-	case "crossed_goals":
+	case "Navzkrižni cilji":
 		err = sm.runCrossedGoals()
-	case "overridden_goal":
+	case "Prekinjen cilj":
 		err = sm.runOverriddenGoal()
-	case "change_of_plans":
+	case "Prekinjeno umikanje":
 		err = sm.runChangeOfPlans()
 
 	// Three Agent Scenarios
-	case "chained_requests":
+	case "Verižne zahteve":
 		err = sm.runChainedRequests()
-	case "too_far":
+	case "Nedosegljiv cilj":
 		err = sm.runTooFar()
-	case "unreliable_network":
+	case "Nezanesljivo omrežje":
 		err = sm.runUnreliableNetwork()
-	case "slow_network":
+	case "Počasno omrežje":
 		err = sm.runSlowNetwork()
-	case "concurrent_chained_requests":
+	case "Navzkrižni cilji z vmesnim agentom":
 		err = sm.runConcurrentChainedRequests()
 
 	default:
