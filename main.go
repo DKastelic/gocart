@@ -35,7 +35,7 @@ func main() {
 
 	// Run the default scenario to set up the initial 4-cart configuration
 	go func() {
-		err := scenarioManager.RunScenario("default")
+		err := scenarioManager.RunScenario("Privzeti scenarij")
 		if err != nil {
 			log.Printf("Error running default scenario: %v", err)
 		}
